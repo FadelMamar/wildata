@@ -10,9 +10,9 @@ import yaml
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from src.wildtrain.pipeline.data_pipeline import DataPipeline
-from src.wildtrain.pipeline.master_data_manager import MasterDataManager
-from src.wildtrain.pipeline.framework_data_manager import FrameworkDataManager
+from wildtrain.pipeline.data_pipeline import DataPipeline
+from wildtrain.pipeline.master_data_manager import MasterDataManager
+from wildtrain.pipeline.framework_data_manager import FrameworkDataManager
 
 
 class TestDataPipeline:

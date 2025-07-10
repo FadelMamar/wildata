@@ -1,187 +1,262 @@
 """
-Main data pipeline orchestrator for managing the complete data workflow.
+Data pipeline for managing deep learning datasets with transformations.
 """
 
-import os
-import shutil
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 import logging
+from pathlib import Path
+import json
+import numpy as np
+import cv2
 
-from ..validators.coco_validator import COCOValidator
-from ..validators.yolo_validator import YOLOValidator
+from ..adapters.base_adapter import BaseAdapter
 from ..converters.coco_to_master import COCOToMasterConverter
 from ..converters.yolo_to_master import YOLOToMasterConverter
-from .master_data_manager import MasterDataManager
-from .framework_data_manager import FrameworkDataManager
+from ..validators.coco_validator import COCOValidator
+from ..validators.yolo_validator import YOLOValidator
+from ..transformations import TransformationPipeline, AugmentationTransformer, TilingTransformer
 
 
 class DataPipeline:
     """
-    Main data pipeline orchestrator that coordinates the complete data workflow.
+    Main data pipeline for managing deep learning datasets.
     
-    Workflow:
-    1. Validate input data format (COCO or YOLO)
-    2. Convert to master format and store in master directory
-    3. Create framework-specific formats using symlinks
+    This pipeline integrates:
+    - Data validation
+    - Format conversion
+    - Data transformations (augmentation, tiling)
+    - Framework-specific format generation
     """
     
-    def __init__(self, project_root: str):
+    def __init__(self, master_data_dir: str, transformation_pipeline: Optional[TransformationPipeline] = None):
         """
         Initialize the data pipeline.
         
         Args:
-            project_root: Root directory of the project
+            master_data_dir: Directory for storing master format data
+            transformation_pipeline: Optional transformation pipeline
         """
-        self.project_root = Path(project_root)
-        self.master_data_manager = MasterDataManager(self.project_root)
-        self.framework_data_manager = FrameworkDataManager(self.project_root)
+        self.master_data_dir = Path(master_data_dir)
+        self.master_data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        self.transformation_pipeline = transformation_pipeline or TransformationPipeline()
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # Initialize converters and validators
+        self.converters = {
+            'coco': COCOToMasterConverter(),
+            'yolo': YOLOToMasterConverter()
+        }
+        
+        self.validators = {
+            'coco': COCOValidator(),
+            'yolo': YOLOValidator()
+        }
+        
+        self.adapters = {}
     
-    def import_dataset(self, 
-                      source_path: str, 
-                      format_type: str,
-                      dataset_name: str,
-                      validation_hints: bool = True) -> Dict[str, Any]:
+    def import_dataset(self, source_path: str, source_format: str, dataset_name: str, 
+                      apply_transformations: bool = False) -> bool:
         """
-        Import a dataset from COCO or YOLO format into the master format.
+        Import a dataset from source format to master format.
         
         Args:
-            source_path: Path to the source dataset
-            format_type: Either 'coco' or 'yolo'
-            dataset_name: Name for the dataset in master storage
-            validation_hints: Whether to provide detailed validation hints
+            source_path: Path to source dataset
+            source_format: Format of source dataset ('coco' or 'yolo')
+            dataset_name: Name for the dataset in master format
+            apply_transformations: Whether to apply transformations during import
             
         Returns:
-            Dictionary with import results and status
+            True if import successful, False otherwise
         """
-        source_path = Path(source_path)
+        try:
+            self.logger.info(f"Importing dataset from {source_path} ({source_format} format)")
+            
+            # Validate source format
+            if source_format not in self.converters:
+                self.logger.error(f"Unsupported source format: {source_format}")
+                return False
+            
+            # Validate dataset
+            validator = self.validators[source_format]
+            if not validator.validate(source_path):
+                self.logger.error(f"Validation failed for {source_format} dataset")
+                return False
+            
+            # Convert to master format
+            converter = self.converters[source_format]
+            master_data = converter.convert(source_path)
+            
+            # Apply transformations if requested
+            if apply_transformations and self.transformation_pipeline:
+                master_data = self._apply_transformations_to_dataset(master_data)
+            
+            # Save master data
+            dataset_dir = self.master_data_dir / dataset_name
+            dataset_dir.mkdir(exist_ok=True)
+            
+            self._save_master_data(master_data, dataset_dir)
+            
+            self.logger.info(f"Successfully imported dataset '{dataset_name}'")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error importing dataset: {str(e)}")
+            return False
+    
+    def _apply_transformations_to_dataset(self, master_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Apply transformations to all images and annotations in the dataset.
         
-        if not source_path.exists():
-            raise FileNotFoundError(f"Source path does not exist: {source_path}")
+        Args:
+            master_data: Master format dataset data
+            
+        Returns:
+            Transformed master data
+        """
+        transformed_images = []
+        transformed_annotations = []
+        transformed_image_info = []
         
-        # Step 1: Validate the input data
-        self.logger.info(f"Validating {format_type.upper()} dataset at {source_path}")
-        validation_result = self._validate_dataset(source_path, format_type, validation_hints)
-        
-        if not validation_result['is_valid']:
-            return {
-                'success': False,
-                'error': 'Validation failed',
-                'validation_errors': validation_result['errors'],
-                'hints': validation_result.get('hints', [])
-            }
-        
-        # Step 2: Convert to master format
-        self.logger.info("Converting to master format")
-        conversion_result = self._convert_to_master(source_path, format_type, dataset_name)
-        
-        if not conversion_result['success']:
-            return conversion_result
-        
-        # Step 3: Create framework-specific formats
-        self.logger.info("Creating framework-specific formats")
-        framework_result = self._create_framework_formats(dataset_name)
+        for image_info in master_data['images']:
+            # Load image
+            image_path = Path(image_info['file_name'])
+            if not image_path.is_absolute():
+                image_path = self.master_data_dir / image_path
+            
+            image = cv2.imread(str(image_path))
+            if image is None:
+                self.logger.warning(f"Could not load image: {image_path}")
+                continue
+            
+            # Get annotations for this image
+            image_annotations = [
+                ann for ann in master_data['annotations'] 
+                if ann['image_id'] == image_info['id']
+            ]
+            
+            # Apply transformations
+            try:
+                transformed_data = self.transformation_pipeline.transform(
+                    image, image_annotations, image_info
+                )
+                
+                for data in transformed_data:
+                    transformed_images.extend(data['image'])
+                    transformed_annotations.extend(data.get('annotations', []))
+                    transformed_image_info.extend(data['info'])
+                
+            except Exception as e:
+                self.logger.error(f"Error transforming image {image_info['file_name']}: {str(e)}")
+                continue
         
         return {
-            'success': True,
-            'dataset_name': dataset_name,
-            'master_path': conversion_result['master_path'],
-            'framework_paths': framework_result['framework_paths'],
-            'validation_result': validation_result,
-            'conversion_result': conversion_result
+            'images': transformed_images,
+            'annotations': transformed_annotations,
+            'categories': master_data.get('categories', []),
+            'info': transformed_image_info
         }
     
-    def _validate_dataset(self, source_path: Path, format_type: str, provide_hints: bool) -> Dict[str, Any]:
-        """Validate the input dataset."""
-        if format_type.lower() == 'coco':
-            validator = COCOValidator(str(source_path))
-        elif format_type.lower() == 'yolo':
-            validator = YOLOValidator(str(source_path))
-        else:
-            raise ValueError(f"Unsupported format type: {format_type}")
+    def _save_master_data(self, master_data: Dict[str, Any], dataset_dir: Path) -> None:
+        """
+        Save master format data to directory.
         
-        is_valid = validator.validate()
-        errors = validator.get_errors()
+        Args:
+            master_data: Master format data
+            dataset_dir: Directory to save data
+        """
+        # Save annotations
+        annotations_file = dataset_dir / 'annotations.json'
+        with open(annotations_file, 'w') as f:
+            json.dump(master_data, f, indent=2)
         
-        result = {
-            'is_valid': is_valid,
-            'errors': errors
-        }
+        # Save images (copy or symlink)
+        images_dir = dataset_dir / 'images'
+        images_dir.mkdir(exist_ok=True)
         
-        if provide_hints and not is_valid:
-            result['hints'] = self._generate_validation_hints(format_type, errors)
-        
-        return result
-    
-    def _convert_to_master(self, source_path: Path, format_type: str, dataset_name: str) -> Dict[str, Any]:
-        """Convert the dataset to master format."""
-        try:
-            if format_type.lower() == 'coco':
-                converter = COCOToMasterConverter(str(source_path))
-            elif format_type.lower() == 'yolo':
-                converter = YOLOToMasterConverter(str(source_path))
-            else:
-                raise ValueError(f"Unsupported format type: {format_type}")
+        for image_info in master_data['images']:
+            source_path = Path(image_info['file_name'])
+            if not source_path.is_absolute():
+                source_path = self.master_data_dir / source_path
             
-            master_data = converter.convert()
-            master_path = self.master_data_manager.store_dataset(dataset_name, master_data)
+            target_path = images_dir / source_path.name
             
-            return {
-                'success': True,
-                'master_path': master_path
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            if source_path.exists():
+                # Create symlink or copy
+                if not target_path.exists():
+                    target_path.symlink_to(source_path)
+        
+        self.logger.info(f"Saved master data to {dataset_dir}")
     
-    def _create_framework_formats(self, dataset_name: str) -> Dict[str, Any]:
-        """Create framework-specific formats using symlinks."""
+    def export_dataset(self, dataset_name: str, target_format: str, target_path: str) -> bool:
+        """
+        Export a dataset from master format to target format.
+        
+        Args:
+            dataset_name: Name of the dataset in master format
+            target_format: Target format ('coco' or 'yolo')
+            target_path: Path to save exported dataset
+            
+        Returns:
+            True if export successful, False otherwise
+        """
         try:
-            framework_paths = self.framework_data_manager.create_framework_formats(dataset_name)
-            return {
-                'success': True,
-                'framework_paths': framework_paths
-            }
+            self.logger.info(f"Exporting dataset '{dataset_name}' to {target_format} format")
+            
+            # Load master data
+            dataset_dir = self.master_data_dir / dataset_name
+            annotations_file = dataset_dir / 'annotations.json'
+            
+            if not annotations_file.exists():
+                self.logger.error(f"Dataset '{dataset_name}' not found")
+                return False
+            
+            with open(annotations_file, 'r') as f:
+                master_data = json.load(f)
+            
+            # Get or create adapter
+            if target_format not in self.adapters:
+                # Create adapter based on target format
+                if target_format == 'coco':
+                    from ..adapters.coco_adapter import COCOAdapter
+                    self.adapters[target_format] = COCOAdapter()
+                elif target_format == 'yolo':
+                    from ..adapters.yolo_adapter import YOLOAdapter
+                    self.adapters[target_format] = YOLOAdapter()
+                else:
+                    self.logger.error(f"Unsupported target format: {target_format}")
+                    return False
+            
+            # Convert to target format
+            adapter = self.adapters[target_format]
+            adapter.convert_and_save(master_data, target_path)
+            
+            self.logger.info(f"Successfully exported dataset to {target_path}")
+            return True
+            
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            self.logger.error(f"Error exporting dataset: {str(e)}")
+            return False
     
-    def _generate_validation_hints(self, format_type: str, errors: List[str]) -> List[str]:
-        """Generate helpful hints for validation errors."""
-        hints = []
+    def add_transformation(self, transformer) -> None:
+        """
+        Add a transformation to the pipeline.
         
-        if format_type.lower() == 'coco':
-            if any('missing required field' in error for error in errors):
-                hints.append("Ensure your COCO JSON file contains all required fields: images, annotations, categories")
-            if any('file not found' in error for error in errors):
-                hints.append("Check that all image files referenced in the COCO JSON exist in the specified paths")
+        Args:
+            transformer: Transformer to add
+        """
+        self.transformation_pipeline.add_transformer(transformer)
+    
+    def get_pipeline_status(self) -> Dict[str, Any]:
+        """
+        Get status information about the pipeline.
         
-        elif format_type.lower() == 'yolo':
-            if any('missing required field' in error for error in errors):
-                hints.append("Ensure your data.yaml contains required fields: path, train, names")
-            if any('path' in error and 'string' in error for error in errors):
-                hints.append("The 'path' field in data.yaml must be a string pointing to the dataset root directory")
-            if any('train' in error for error in errors):
-                hints.append("The 'train' field in data.yaml must be a string or list of strings pointing to training images")
-        
-        return hints
-    
-    def list_datasets(self) -> List[Dict[str, Any]]:
-        """List all available datasets in the master storage."""
-        return self.master_data_manager.list_datasets()
-    
-    def get_dataset_info(self, dataset_name: str) -> Dict[str, Any]:
-        """Get information about a specific dataset."""
-        return self.master_data_manager.get_dataset_info(dataset_name)
-    
-    def export_framework_format(self, dataset_name: str, framework: str) -> Dict[str, Any]:
-        """Export a dataset to a specific framework format."""
-        return self.framework_data_manager.export_framework_format(dataset_name, framework) 
+        Returns:
+            Dictionary with pipeline status
+        """
+        return {
+            'master_data_dir': str(self.master_data_dir),
+            'transformation_pipeline': self.transformation_pipeline.get_pipeline_info(),
+            'supported_formats': list(self.converters.keys()),
+            'available_datasets': [d.name for d in self.master_data_dir.iterdir() if d.is_dir()]
+        } 
