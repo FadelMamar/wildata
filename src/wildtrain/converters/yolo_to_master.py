@@ -1,9 +1,11 @@
 import json
 import os
+from pathlib import Path
 import yaml
 from typing import Any, Dict, List, Tuple
 from ..validators.yolo_validator import YOLOValidator
 from ..validators.master_validator import MasterValidator
+from PIL import Image
 
 class YOLOToMasterConverter:
     """
@@ -17,12 +19,15 @@ class YOLOToMasterConverter:
         self.yolo_data: Dict[str, Any] = {}
         self.base_path = None
 
-    def load_yolo_data(self) -> None:
+    def load_yolo_data(self, filter_invalid_annotations: bool = False) -> None:
         """
         Load the YOLO data.yaml file and parse the dataset structure.
+        Args:
+            filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
         """
         # Validate before loading
-        validator = YOLOValidator(self.yolo_data_yaml_path)
+        from ..validators.yolo_validator import YOLOValidator
+        validator = YOLOValidator(self.yolo_data_yaml_path, filter_invalid_annotations=filter_invalid_annotations)
         is_valid, errors, warnings = validator.validate()
         
         if not is_valid:
@@ -38,6 +43,10 @@ class YOLOToMasterConverter:
         self.base_path = self.yolo_data.get('path')
         if self.base_path and not os.path.isabs(self.base_path):
             self.base_path = os.path.abspath(os.path.join(os.path.dirname(self.yolo_data_yaml_path), self.base_path))
+        if filter_invalid_annotations:
+            skipped_count = validator.get_skipped_count()
+            if skipped_count > 0:
+                print(f"Warning: Skipped {skipped_count} invalid YOLO annotation lines during validation")
 
     def _resolve_path(self, p: str) -> str:
         if os.path.isabs(p):
@@ -46,7 +55,7 @@ class YOLOToMasterConverter:
             return os.path.abspath(os.path.join(self.base_path, p))
         return os.path.abspath(os.path.join(os.path.dirname(self.yolo_data_yaml_path), p))
 
-    def convert_to_master(self, dataset_name: str, version: str = "1.0", task_type: str = "detection", validate_output: bool = True) -> Dict[str, Any]:
+    def convert_to_master(self, dataset_name: str, version: str = "1.0", task_type: str = "detection", validate_output: bool = True, filter_invalid_annotations: bool = False) -> Dict[str, Any]:
         """
         Convert the loaded YOLO data to master format.
         Args:
@@ -54,6 +63,7 @@ class YOLOToMasterConverter:
             version (str): Version of the dataset.
             task_type (str): Type of task (detection, segmentation).
             validate_output (bool): Whether to validate the output master annotation.
+            filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
         Returns:
             Dict[str, Any]: The master annotation dictionary.
         """
@@ -104,7 +114,7 @@ class YOLOToMasterConverter:
 
         # Validate the output if requested
         if validate_output:
-            self._validate_master_annotation(master_annotation)
+            self._validate_master_annotation(master_annotation, filter_invalid_annotations)
 
         return master_annotation
 
@@ -160,13 +170,13 @@ class YOLOToMasterConverter:
         return sorted(image_files)
 
     def _get_label_file_path(self, image_file: str) -> str:
-        base_name = os.path.splitext(image_file)[0]
-        return base_name + '.txt'
+        path = Path(image_file).with_suffix('.txt')
+        return str(path).replace('images', 'labels')
 
     def _get_image_dimensions(self, image_file: str) -> Tuple[int, int]:
-        # For now, return default dimensions
-        # In practice, you'd load the image and get actual dimensions
-        return (640, 640)  # Default YOLO size
+        with Image.open(image_file) as image:
+            width, height = image.size
+            return width, height
 
     def _parse_yolo_label_file(self, label_file: str, image_id: int, width: int, height: int) -> List[Dict[str, Any]]:
         annotations = []
@@ -179,11 +189,27 @@ class YOLOToMasterConverter:
                     parts = line.split()
                     if len(parts) < 5:
                         continue
-                    class_id = int(parts[0])
-                    x_center_norm = float(parts[1])
-                    y_center_norm = float(parts[2])
-                    w_norm = float(parts[3])
-                    h_norm = float(parts[4])
+                    
+                    # Try to parse class_id, skip if invalid
+                    try:
+                        class_id = int(parts[0])
+                    except ValueError:
+                        continue  # Skip invalid class_id
+                    
+                    # Try to parse coordinates, skip if invalid
+                    try:
+                        x_center_norm = float(parts[1])
+                        y_center_norm = float(parts[2])
+                        w_norm = float(parts[3])
+                        h_norm = float(parts[4])
+                        
+                        # Validate coordinate ranges
+                        if not (0 <= x_center_norm <= 1 and 0 <= y_center_norm <= 1 and 
+                                0 <= w_norm <= 1 and 0 <= h_norm <= 1):
+                            continue  # Skip invalid coordinates
+                    except ValueError:
+                        continue  # Skip invalid coordinates
+                    
                     x_center = x_center_norm * width
                     y_center = y_center_norm * height
                     w = w_norm * width
@@ -192,17 +218,27 @@ class YOLOToMasterConverter:
                     y = y_center - h / 2
                     area = w * h
                     segmentation = []
+                    
+                    # Parse segmentation points if present
                     if len(parts) > 5:
-                        seg_points = []
-                        for i in range(5, len(parts), 2):
-                            if i + 1 < len(parts):
-                                x_norm = float(parts[i])
-                                y_norm = float(parts[i + 1])
-                                x_abs = x_norm * width
-                                y_abs = y_norm * height
-                                seg_points.extend([x_abs, y_abs])
-                        if seg_points:
-                            segmentation = [seg_points]
+                        try:
+                            seg_points = []
+                            for i in range(5, len(parts), 2):
+                                if i + 1 < len(parts):
+                                    x_norm = float(parts[i])
+                                    y_norm = float(parts[i + 1])
+                                    # Validate segmentation coordinate ranges
+                                    if not (0 <= x_norm <= 1 and 0 <= y_norm <= 1):
+                                        continue  # Skip invalid segmentation points
+                                    x_abs = x_norm * width
+                                    y_abs = y_norm * height
+                                    seg_points.extend([x_abs, y_abs])
+                            if seg_points:
+                                segmentation = [seg_points]
+                        except (ValueError, IndexError):
+                            # Skip invalid segmentation points
+                            pass
+                    
                     annotation = {
                         'image_id': image_id,
                         'category_id': class_id,
@@ -218,15 +254,16 @@ class YOLOToMasterConverter:
             pass  # Label file doesn't exist
         return annotations
 
-    def _validate_master_annotation(self, master_annotation: Dict[str, Any]) -> None:
+    def _validate_master_annotation(self, master_annotation: Dict[str, Any], filter_invalid_annotations: bool = False) -> None:
         """
         Validate the master annotation using MasterValidator.
         Args:
             master_annotation (Dict[str, Any]): The master annotation to validate.
+            filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
         Raises:
             ValueError: If validation fails.
         """
-        validator = MasterValidator()
+        validator = MasterValidator(filter_invalid_annotations=filter_invalid_annotations)
         is_valid, errors, warnings = validator.validate_data(master_annotation)
         
         if not is_valid:
@@ -237,4 +274,10 @@ class YOLOToMasterConverter:
             raise ValueError(error_msg)
         
         if warnings:
-            print(f"Master annotation validation warnings:\n" + "\n".join(warnings)) 
+            print(f"Master annotation validation warnings:\n" + "\n".join(warnings))
+        
+        # Report skipped annotations if any
+        if filter_invalid_annotations:
+            skipped_count = validator.get_skipped_count()
+            if skipped_count > 0:
+                print(f"Warning: Skipped {skipped_count} invalid annotations during master validation") 

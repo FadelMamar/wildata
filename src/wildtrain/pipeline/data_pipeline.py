@@ -466,17 +466,12 @@ class DataPipeline:
             split_labels_dir = labels_dir / split
             split_labels_dir.mkdir(exist_ok=True)
             
-            for image_name, label_data in split_annotations.items():
+            for image_name, label_lines in split_annotations.items():
                 label_file = split_labels_dir / f"{Path(image_name).stem}.txt"
                 
                 with open(label_file, 'w') as f:
-                    for annotation in label_data:
-                        # Format: class_id x_center y_center width height
-                        class_id = annotation.get('class_id', 0)
-                        bbox = annotation.get('bbox', [0, 0, 0, 0])
-                        x_center, y_center, width, height = bbox
-                        
-                        f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
+                    for line in label_lines:
+                        f.write(line + '\n')
     
     def _save_yolo_data_yaml(self, yolo_dir: Path, dataset_name: str, yolo_data: Dict[str, Any]):
         """Save YOLO data.yaml file."""

@@ -10,17 +10,20 @@ class MasterValidator:
     Validator for the master annotation format.
     """
     
-    def __init__(self, master_annotation_path: str | None = None, schema_path: str | None = None):
+    def __init__(self, master_annotation_path: str | None = None, schema_path: str | None = None, filter_invalid_annotations: bool = False):
         """
         Initialize the validator.
         Args:
             master_annotation_path (str): Path to the master annotation file to validate.
             schema_path (str): Path to the JSON schema file. If None, uses default schema.
+            filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
         """
         self.master_annotation_path = master_annotation_path
         self.schema_path = schema_path or os.path.join(os.path.dirname(__file__), '..', '..', '..', 'schema', 'annotation_schema.json')
         self.schema = None
         self.master_data = None
+        self.filter_invalid_annotations = filter_invalid_annotations
+        self.skipped_annotations = []
         
     def load_schema(self) -> None:
         """
@@ -67,14 +70,22 @@ class MasterValidator:
             if self.master_data is None and self.master_annotation_path:
                 self.load_master_annotation()
             
-            # Validate against schema
-            if self.master_data:
-                validate(instance=self.master_data, schema=self.schema)
-                
-                # Additional custom validations
-                custom_errors, custom_warnings = self._custom_validation()
-                errors.extend(custom_errors)
-                warnings.extend(custom_warnings)
+            # Additional custom validations (including filtering) first
+            custom_errors, custom_warnings = self._custom_validation()
+            errors.extend(custom_errors)
+            warnings.extend(custom_warnings)
+            
+            # Validate against schema (only if no critical errors from custom validation)
+            if self.master_data and self.schema and len(errors) == 0:
+                try:
+                    validate(instance=self.master_data, schema=self.schema)
+                except ValidationError as e:
+                    if self.filter_invalid_annotations:
+                        warnings.append(f"Schema validation warning: {e.message}")
+                    else:
+                        errors.append(f"Schema validation error: {e.message}")
+                        if e.path:
+                            errors.append(f"Path: {' -> '.join(str(p) for p in e.path)}")
             
         except ValidationError as e:
             errors.append(f"Schema validation error: {e.message}")
@@ -168,39 +179,106 @@ class MasterValidator:
         else:
             annotation_ids = set()
             valid_image_ids = image_ids
+            valid_annotations = []
+            skipped_count = 0
             
             for i, ann in enumerate(annotations):
+                is_valid = True
+                skip_reason = None
+                
+                # Check for missing required fields
                 if 'id' not in ann:
-                    errors.append(f"Annotation {i} missing 'id' field")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "missing 'id' field"
+                        is_valid = False
+                    else:
+                        errors.append(f"Annotation {i} missing 'id' field")
+                        continue
                 elif ann['id'] in annotation_ids:
-                    errors.append(f"Duplicate annotation ID: {ann['id']}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"duplicate annotation ID: {ann['id']}"
+                        is_valid = False
+                    else:
+                        errors.append(f"Duplicate annotation ID: {ann['id']}")
+                        continue
                 else:
                     annotation_ids.add(ann['id'])
                 
                 if 'image_id' not in ann:
-                    errors.append(f"Annotation {i} missing 'image_id' field")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "missing 'image_id' field"
+                        is_valid = False
+                    else:
+                        errors.append(f"Annotation {i} missing 'image_id' field")
+                        continue
                 elif ann['image_id'] not in valid_image_ids:
-                    errors.append(f"Annotation {i} references non-existent image_id: {ann['image_id']}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"references non-existent image_id: {ann['image_id']}"
+                        is_valid = False
+                    else:
+                        errors.append(f"Annotation {i} references non-existent image_id: {ann['image_id']}")
+                        continue
                 
                 if 'category_id' not in ann:
-                    errors.append(f"Annotation {i} missing 'category_id' field")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "missing 'category_id' field"
+                        is_valid = False
+                    else:
+                        errors.append(f"Annotation {i} missing 'category_id' field")
+                        continue
                 elif ann['category_id'] not in class_ids:
-                    errors.append(f"Annotation {i} references non-existent category_id: {ann['category_id']}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"references non-existent category_id: {ann['category_id']}"
+                        is_valid = False
+                    else:
+                        errors.append(f"Annotation {i} references non-existent category_id: {ann['category_id']}")
+                        continue
                 
                 # Validate bbox if present
                 bbox = ann.get('bbox', [])
                 if bbox:
                     if len(bbox) != 4:
-                        errors.append(f"Annotation {i} has invalid bbox length: {len(bbox)}")
+                        if self.filter_invalid_annotations:
+                            skip_reason = f"invalid bbox length: {len(bbox)}"
+                            is_valid = False
+                        else:
+                            errors.append(f"Annotation {i} has invalid bbox length: {len(bbox)}")
+                            continue
                     else:
                         x, y, w, h = bbox
                         if w <= 0 or h <= 0:
-                            errors.append(f"Annotation {i} has invalid bbox dimensions: {bbox}")
+                            if self.filter_invalid_annotations:
+                                skip_reason = f"invalid bbox dimensions: {bbox}"
+                                is_valid = False
+                            else:
+                                errors.append(f"Annotation {i} has invalid bbox dimensions: {bbox}")
+                                continue
                 
                 # Validate area if present
                 area = ann.get('area', 0)
                 if area < 0:
-                    errors.append(f"Annotation {i} has negative area: {area}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"negative area: {area}"
+                        is_valid = False
+                    else:
+                        errors.append(f"Annotation {i} has negative area: {area}")
+                        continue
+                
+                # Add to valid annotations or skip
+                if is_valid:
+                    valid_annotations.append(ann)
+                else:
+                    skipped_count += 1
+                    self.skipped_annotations.append({
+                        'index': i,
+                        'annotation': ann,
+                        'reason': skip_reason
+                    })
+            
+            # Update the master data with filtered annotations
+            if self.filter_invalid_annotations and skipped_count > 0:
+                self.master_data['annotations'] = valid_annotations
+                warnings.append(f"Skipped {skipped_count} invalid annotations")
         
         return errors, warnings
     
@@ -255,4 +333,20 @@ class MasterValidator:
             "warnings": warnings
         }
         
-        return summary 
+        return summary
+    
+    def get_skipped_annotations(self) -> List[Dict[str, Any]]:
+        """
+        Get information about skipped annotations when filter_invalid_annotations=True.
+        Returns:
+            List[Dict[str, Any]]: List of skipped annotation information.
+        """
+        return self.skipped_annotations
+    
+    def get_skipped_count(self) -> int:
+        """
+        Get the number of skipped annotations.
+        Returns:
+            int: Number of skipped annotations.
+        """
+        return len(self.skipped_annotations) 

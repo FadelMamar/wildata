@@ -6,14 +6,19 @@ class COCOValidator:
     """
     Validator for COCO format annotation files.
     """
-    def __init__(self, coco_file_path: str):
+    def __init__(self, coco_file_path: str, filter_invalid_annotations: bool = False):
         """
         Initialize the validator with the path to the COCO annotation file.
+        Args:
+            coco_file_path (str): Path to the COCO annotation file.
+            filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
         """
         self.coco_file_path = coco_file_path
+        self.filter_invalid_annotations = filter_invalid_annotations
         self.coco_data: Dict[str, Any] = {}
         self.errors: List[str] = []
         self.warnings: List[str] = []
+        self.skipped_annotations = []
 
     def validate(self) -> Tuple[bool, List[str], List[str]]:
         """
@@ -143,24 +148,65 @@ class COCOValidator:
     def _validate_annotation_structure(self):
         """Validate annotation structure."""
         required_annotation_fields = ['id', 'image_id', 'category_id', 'bbox']
+        valid_annotations = []
+        skipped_count = 0
         
         for i, ann in enumerate(self.coco_data['annotations']):
+            is_valid = True
+            skip_reason = None
+            
             if not isinstance(ann, dict):
-                self.errors.append(f"Annotation {i} must be a dictionary")
-                continue
+                if self.filter_invalid_annotations:
+                    skip_reason = "not a dictionary"
+                    is_valid = False
+                else:
+                    self.errors.append(f"Annotation {i} must be a dictionary")
+                    continue
 
             # Check required fields
             for field in required_annotation_fields:
                 if field not in ann:
-                    self.errors.append(f"Annotation {i} missing required field: {field}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"missing required field: {field}"
+                        is_valid = False
+                        break
+                    else:
+                        self.errors.append(f"Annotation {i} missing required field: {field}")
+                        continue
 
             # Validate bbox format
             if 'bbox' in ann:
                 bbox = ann['bbox']
                 if not isinstance(bbox, list) or len(bbox) != 4:
-                    self.errors.append(f"Annotation {i} bbox must be a list of 4 numbers")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "bbox must be a list of 4 numbers"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} bbox must be a list of 4 numbers")
+                        continue
                 elif not all(isinstance(x, (int, float)) for x in bbox):
-                    self.errors.append(f"Annotation {i} bbox must contain only numbers")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "bbox must contain only numbers"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} bbox must contain only numbers")
+                        continue
+            
+            # Add to valid annotations or skip
+            if is_valid:
+                valid_annotations.append(ann)
+            else:
+                skipped_count += 1
+                self.skipped_annotations.append({
+                    'index': i,
+                    'annotation': ann,
+                    'reason': skip_reason
+                })
+        
+        # Update the COCO data with filtered annotations
+        if self.filter_invalid_annotations and skipped_count > 0:
+            self.coco_data['annotations'] = valid_annotations
+            self.warnings.append(f"Skipped {skipped_count} invalid annotations during structure validation")
 
     def _validate_relationships(self):
         """Validate relationships between images, annotations, and categories."""
@@ -169,41 +215,119 @@ class COCOValidator:
 
         image_ids = {img['id'] for img in self.coco_data['images']}
         category_ids = {cat['id'] for cat in self.coco_data['categories']}
+        valid_annotations = []
+        skipped_count = 0
 
         # Check annotation references
         for i, ann in enumerate(self.coco_data['annotations']):
+            is_valid = True
+            skip_reason = None
+            
             if 'image_id' in ann and ann['image_id'] not in image_ids:
-                self.errors.append(f"Annotation {i} references non-existent image_id: {ann['image_id']}")
+                if self.filter_invalid_annotations:
+                    skip_reason = f"references non-existent image_id: {ann['image_id']}"
+                    is_valid = False
+                else:
+                    self.errors.append(f"Annotation {i} references non-existent image_id: {ann['image_id']}")
+                    continue
             
             if 'category_id' in ann and ann['category_id'] not in category_ids:
-                self.errors.append(f"Annotation {i} references non-existent category_id: {ann['category_id']}")
+                if self.filter_invalid_annotations:
+                    skip_reason = f"references non-existent category_id: {ann['category_id']}"
+                    is_valid = False
+                else:
+                    self.errors.append(f"Annotation {i} references non-existent category_id: {ann['category_id']}")
+                    continue
+            
+            # Add to valid annotations or skip
+            if is_valid:
+                valid_annotations.append(ann)
+            else:
+                skipped_count += 1
+                self.skipped_annotations.append({
+                    'index': i,
+                    'annotation': ann,
+                    'reason': skip_reason
+                })
+        
+        # Update the COCO data with filtered annotations
+        if self.filter_invalid_annotations and skipped_count > 0:
+            self.coco_data['annotations'] = valid_annotations
+            self.warnings.append(f"Skipped {skipped_count} invalid annotations during relationship validation")
 
     def _validate_annotations(self):
         """Validate annotation-specific content."""
+        valid_annotations = []
+        skipped_count = 0
+        
         for i, ann in enumerate(self.coco_data['annotations']):
+            is_valid = True
+            skip_reason = None
+            
             # Validate bbox values
             if 'bbox' in ann and isinstance(ann['bbox'], list) and len(ann['bbox']) == 4:
                 x, y, w, h = ann['bbox']
                 if w <= 0 or h <= 0:
-                    self.errors.append(f"Annotation {i} has invalid bbox dimensions: {w}x{h}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"invalid bbox dimensions: {w}x{h}"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} has invalid bbox dimensions: {w}x{h}")
+                        continue
 
             # Validate area
             if 'area' in ann:
                 if not isinstance(ann['area'], (int, float)) or ann['area'] <= 0:
-                    self.errors.append(f"Annotation {i} has invalid area: {ann['area']}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"invalid area: {ann['area']}"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} has invalid area: {ann['area']}")
+                        continue
 
             # Validate iscrowd
             if 'iscrowd' in ann:
                 if ann['iscrowd'] not in [0, 1]:
-                    self.errors.append(f"Annotation {i} has invalid iscrowd value: {ann['iscrowd']}")
+                    if self.filter_invalid_annotations:
+                        skip_reason = f"invalid iscrowd value: {ann['iscrowd']}"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} has invalid iscrowd value: {ann['iscrowd']}")
+                        continue
 
             # Validate segmentation
             if 'segmentation' in ann:
                 seg = ann['segmentation']
                 if not isinstance(seg, list):
-                    self.errors.append(f"Annotation {i} segmentation must be a list")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "segmentation must be a list"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} segmentation must be a list")
+                        continue
                 elif seg and not isinstance(seg[0], list):
-                    self.errors.append(f"Annotation {i} segmentation must be a list of polygons")
+                    if self.filter_invalid_annotations:
+                        skip_reason = "segmentation must be a list of polygons"
+                        is_valid = False
+                    else:
+                        self.errors.append(f"Annotation {i} segmentation must be a list of polygons")
+                        continue
+            
+            # Add to valid annotations or skip
+            if is_valid:
+                valid_annotations.append(ann)
+            else:
+                skipped_count += 1
+                self.skipped_annotations.append({
+                    'index': i,
+                    'annotation': ann,
+                    'reason': skip_reason
+                })
+        
+        # Update the COCO data with filtered annotations
+        if self.filter_invalid_annotations and skipped_count > 0:
+            self.coco_data['annotations'] = valid_annotations
+            self.warnings.append(f"Skipped {skipped_count} invalid annotations during content validation")
 
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of validation results."""
@@ -215,6 +339,23 @@ class COCOValidator:
             'image_count': len(self.coco_data.get('images', [])),
             'annotation_count': len(self.coco_data.get('annotations', [])),
             'category_count': len(self.coco_data.get('categories', [])),
+            'skipped_annotation_count': len(self.skipped_annotations),
             'errors': self.errors,
             'warnings': self.warnings
-        } 
+        }
+    
+    def get_skipped_annotations(self) -> List[Dict[str, Any]]:
+        """
+        Get information about skipped annotations when filter_invalid_annotations=True.
+        Returns:
+            List[Dict[str, Any]]: List of skipped annotation information.
+        """
+        return self.skipped_annotations
+    
+    def get_skipped_count(self) -> int:
+        """
+        Get the number of skipped annotations.
+        Returns:
+            int: Number of skipped annotations.
+        """
+        return len(self.skipped_annotations) 

@@ -7,15 +7,20 @@ class YOLOValidator:
     """
     Validator for YOLO format datasets.
     """
-    def __init__(self, yolo_data_yaml_path: str):
+    def __init__(self, yolo_data_yaml_path: str, filter_invalid_annotations: bool = False):
         """
         Initialize the validator with the path to the YOLO data.yaml file.
+        Args:
+            yolo_data_yaml_path (str): Path to data.yaml
+            filter_invalid_annotations (bool): If True, skip invalid annotations instead of erroring.
         """
         self.yolo_data_yaml_path = yolo_data_yaml_path
         self.yolo_data: Dict[str, Any] = {}
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self.base_path: Optional[str] = None
+        self.filter_invalid_annotations = filter_invalid_annotations
+        self.skipped_annotations: List[Dict[str, Any]] = []
 
     def validate(self) -> Tuple[bool, List[str], List[str]]:
         """
@@ -92,6 +97,8 @@ class YOLOValidator:
             return False
 
     def _resolve_path(self, p: str) -> str:
+        if not self.base_path or not p:
+            return ''
         return os.path.join(self.base_path, p)
 
     def _validate_data_yaml_structure(self):
@@ -105,8 +112,8 @@ class YOLOValidator:
                 self.errors.append("data.yaml 'names' field must be a dictionary")
             elif field == 'path' and not isinstance(self.yolo_data[field], str):
                 self.errors.append("data.yaml 'path' field must be a string")
-            elif field == 'train' and not isinstance(self.yolo_data[field], (str, list)):
-                self.errors.append("data.yaml 'train' field must be a string or list of strings")
+            elif field == 'train' and not isinstance(self.yolo_data[field], str):
+                self.errors.append("data.yaml 'train' field must be a string (lists are not supported)")
 
         # Validate split directories
         splits = ['train', 'val', 'test']
@@ -114,20 +121,15 @@ class YOLOValidator:
             if split in self.yolo_data:
                 split_paths = self.yolo_data[split]
                 if isinstance(split_paths, list):
-                    # Handle list of paths
-                    for i, split_path in enumerate(split_paths):
-                        resolved = self._resolve_path(split_path)
-                        if not isinstance(split_path, str):
-                            self.errors.append(f"data.yaml '{split}'[{i}] must be a string")
-                        elif split_path and not os.path.exists(resolved):
-                            self.warnings.append(f"Split directory does not exist: {resolved}")
-                elif isinstance(split_paths, str):
-                    # Handle single string path
-                    resolved = self._resolve_path(split_paths)
-                    if split_paths and not os.path.exists(resolved):
-                        self.warnings.append(f"Split directory does not exist: {resolved}")
-                else:
-                    self.errors.append(f"data.yaml '{split}' field must be a string or list of strings")
+                    self.errors.append(f"data.yaml '{split}' field must be a string, not a list. Got: {split_paths}")
+                    continue
+                elif not isinstance(split_paths, str):
+                    self.errors.append(f"data.yaml '{split}' field must be a string. Got: {type(split_paths)}")
+                    continue
+                # Handle single string path
+                resolved = self._resolve_path(split_paths)
+                if split_paths and not os.path.exists(resolved):
+                    self.warnings.append(f"Split directory does not exist: {resolved}")
 
         # Validate class names
         if 'names' in self.yolo_data:
@@ -265,39 +267,87 @@ class YOLOValidator:
 
                 parts = line.split()
                 if len(parts) < 5:
-                    self.errors.append(f"{label_file}:{line_num} - Invalid format, need at least 5 values")
+                    msg = f"{label_file}:{line_num} - Invalid format, need at least 5 values"
+                    if self.filter_invalid_annotations:
+                        self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': 'too few values', 'content': line})
+                    else:
+                        self.errors.append(msg)
                     continue
 
                 # Validate class ID
                 try:
                     class_id = int(parts[0])
                     if class_id < 0 or class_id >= num_classes:
-                        self.errors.append(f"{label_file}:{line_num} - Invalid class ID: {class_id}")
+                        msg = f"{label_file}:{line_num} - Invalid class ID: {class_id}"
+                        if self.filter_invalid_annotations:
+                            self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': 'invalid class id', 'content': line})
+                        else:
+                            self.errors.append(msg)
+                        continue
                 except ValueError:
-                    self.errors.append(f"{label_file}:{line_num} - Invalid class ID: {parts[0]}")
+                    msg = f"{label_file}:{line_num} - Invalid class ID: {parts[0]}"
+                    if self.filter_invalid_annotations:
+                        self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': 'invalid class id', 'content': line})
+                    else:
+                        self.errors.append(msg)
+                    continue
 
                 # Validate normalized coordinates
+                coord_error = False
                 for i in range(1, 5):
                     try:
                         coord = float(parts[i])
                         if coord < 0 or coord > 1:
-                            self.errors.append(f"{label_file}:{line_num} - Coordinate {i} out of range [0,1]: {coord}")
+                            msg = f"{label_file}:{line_num} - Coordinate {i} out of range [0,1]: {coord}"
+                            if self.filter_invalid_annotations:
+                                self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': f'coordinate {i} out of range', 'content': line})
+                                coord_error = True
+                                break
+                            else:
+                                self.errors.append(msg)
+                                coord_error = True
+                                break
                     except ValueError:
-                        self.errors.append(f"{label_file}:{line_num} - Invalid coordinate {i}: {parts[i]}")
+                        msg = f"{label_file}:{line_num} - Invalid coordinate {i}: {parts[i]}"
+                        if self.filter_invalid_annotations:
+                            self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': f'invalid coordinate {i}', 'content': line})
+                            coord_error = True
+                            break
+                        else:
+                            self.errors.append(msg)
+                            coord_error = True
+                            break
+                if coord_error:
+                    continue
 
                 # Validate segmentation points if present
                 if len(parts) > 5:
                     if len(parts) % 2 != 1:  # Must be odd (class + pairs of coordinates)
-                        self.errors.append(f"{label_file}:{line_num} - Invalid number of segmentation points")
+                        msg = f"{label_file}:{line_num} - Invalid number of segmentation points"
+                        if self.filter_invalid_annotations:
+                            self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': 'invalid segmentation count', 'content': line})
+                        else:
+                            self.errors.append(msg)
+                        continue
                     else:
                         for i in range(5, len(parts), 2):
                             try:
                                 x = float(parts[i])
                                 y = float(parts[i + 1])
                                 if x < 0 or x > 1 or y < 0 or y > 1:
-                                    self.errors.append(f"{label_file}:{line_num} - Segmentation point out of range: ({x}, {y})")
+                                    msg = f"{label_file}:{line_num} - Segmentation point out of range: ({x}, {y})"
+                                    if self.filter_invalid_annotations:
+                                        self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': 'segmentation point out of range', 'content': line})
+                                    else:
+                                        self.errors.append(msg)
+                                    break
                             except (ValueError, IndexError):
-                                self.errors.append(f"{label_file}:{line_num} - Invalid segmentation point")
+                                msg = f"{label_file}:{line_num} - Invalid segmentation point"
+                                if self.filter_invalid_annotations:
+                                    self.skipped_annotations.append({'file': label_file, 'line': line_num, 'reason': 'invalid segmentation point', 'content': line})
+                                else:
+                                    self.errors.append(msg)
+                                break
 
         except FileNotFoundError:
             self.errors.append(f"Label file not found: {label_file}")
@@ -337,12 +387,19 @@ class YOLOValidator:
         label_file = str(Path(relative_image_path).with_suffix('.txt')).replace('images','labels')
         return os.path.join(labels_dir, label_file)
 
+    def get_skipped_annotations(self) -> List[Dict[str, Any]]:
+        """Get information about skipped annotations when filter_invalid_annotations=True."""
+        return self.skipped_annotations
+
+    def get_skipped_count(self) -> int:
+        """Get the number of skipped annotations."""
+        return len(self.skipped_annotations)
+
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of validation results."""
         # Count files
         total_images = 0
         total_labels = 0
-        
         for split in ['train', 'val', 'test']:
             if split in self.yolo_data:
                 split_paths = self.yolo_data[split]
@@ -365,7 +422,6 @@ class YOLOValidator:
                             total_images += len(self._get_image_files(images_dir))
                         if os.path.exists(labels_dir):
                             total_labels += len(self._get_label_files(labels_dir))
-
         return {
             'data_yaml_path': self.yolo_data_yaml_path,
             'is_valid': len(self.errors) == 0,
@@ -374,6 +430,7 @@ class YOLOValidator:
             'class_count': len(self.yolo_data.get('names', {})),
             'total_images': total_images,
             'total_labels': total_labels,
+            'skipped_annotation_count': len(self.skipped_annotations),
             'errors': self.errors,
             'warnings': self.warnings
         } 
