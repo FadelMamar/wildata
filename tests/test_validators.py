@@ -5,8 +5,8 @@ from wildtrain.validators.yolo_validator import YOLOValidator
 from wildtrain.converters.coco_to_master import COCOToMasterConverter
 from wildtrain.converters.yolo_to_master import YOLOToMasterConverter
 
-COCO_DATA_DIR = os.getenv('COCO_DATA_DIR', r'D:\workspace\repos\wildtrain\data\savmap\coco')
-YOLO_DATA_DIR = os.getenv('YOLO_DATA_DIR', r'D:\workspace\repos\wildtrain\data\savmap\yolo')
+COCO_DATA_DIR = os.getenv('COCO_DATA_DIR', 'data/savmap/coco')
+YOLO_DATA_DIR = os.getenv('YOLO_DATA_DIR', 'data/savmap/yolo')
 
 def test_coco_validator_with_real_data():
     """Test COCO validator with real data."""

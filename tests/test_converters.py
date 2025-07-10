@@ -4,8 +4,8 @@ import pytest
 from wildtrain.converters.coco_to_master import COCOToMasterConverter
 from wildtrain.converters.yolo_to_master import YOLOToMasterConverter
 
-COCO_DATA_DIR = os.getenv('COCO_DATA_DIR', 'data/savmap/coco')
-YOLO_DATA_DIR = os.getenv('YOLO_DATA_DIR', 'data/savmap/yolo')
+COCO_DATA_DIR = os.getenv('COCO_DATA_DIR', r'D:\workspace\repos\wildtrain\data\savmap\coco')
+YOLO_DATA_DIR = os.getenv('YOLO_DATA_DIR', r'D:\workspace\repos\wildtrain\data\savmap\yolo')
 
 def test_coco_to_master_conversion(tmp_path):
     if not os.path.exists(COCO_DATA_DIR):
