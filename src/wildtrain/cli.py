@@ -4,10 +4,12 @@ Command-line interface for the WildTrain data pipeline using Typer.
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 import typer
 
 from .pipeline.data_pipeline import DataPipeline
+from .transformations import AugmentationTransformer, TilingTransformer, TransformationPipeline
+from .config import AugmentationConfig, TilingConfig
 
 __version__ = "0.1.0"
 
@@ -18,47 +20,113 @@ app = typer.Typer(
     rich_markup_mode="rich"
 )
 
-def version_callback(value: bool):
-    if value:
-        typer.echo(f"wildtrain version {__version__}")
-        raise typer.Exit()
+class AppState:
+    data_dir: Path = Path.cwd() / "data"
 
-# Dataset command group
-
-dataset_app = typer.Typer(help="Dataset management commands.")
+state = AppState()
 
 @app.callback()
 def main(
     version: Optional[bool] = typer.Option(
-        None, "--version", "-v", help="Show the application's version and exit.", is_eager=True, callback=version_callback
-    )
+        None, "--version", "-v", help="Show the application's version and exit.", is_eager=True, callback=lambda v: (typer.echo(f"wildtrain version {__version__}") or raise_(typer.Exit()) if v else None)
+    ),
+    data_dir: Optional[Path] = typer.Option(
+        None, "--data-dir", help="Directory to store master data (default: ./data)")
 ):
     """WildTrain Data Pipeline CLI."""
-    pass
+    if data_dir:
+        state.data_dir = data_dir
+    else:
+        state.data_dir = Path.cwd() / "data"
 
+def raise_(ex):
+    raise ex
+
+# Dataset command group
+
+dataset_app = typer.Typer(help="Dataset management commands.")
 
 @dataset_app.command("import")
 def import_dataset(
     source_path: str = typer.Argument(..., help="Path to the source dataset"),
     format_type: str = typer.Argument(..., help="Format type of the source dataset", case_sensitive=False),
     dataset_name: str = typer.Argument(..., help="Name for the dataset in master storage"),
-    no_hints: bool = typer.Option(False, "--no-hints", help="Disable validation hints")
+    no_hints: bool = typer.Option(False, "--no-hints", help="Disable validation hints"),
+    # Augmentation options
+    augment: bool = typer.Option(False, "--augment", help="Apply data augmentation"),
+    rotation_range: Tuple[float, float] = typer.Option((-10, 10), "--rotation", help="Rotation range in degrees"),
+    probability: float = typer.Option(0.5, "--probability", help="Augmentation probability (0-1)"),
+    brightness_range: Tuple[float, float] = typer.Option((0.9, 1.1), "--brightness", help="Brightness range"),
+    contrast_range: Tuple[float, float] = typer.Option((0.9, 1.1), "--contrast", help="Contrast range"),
+    noise_std: float = typer.Option(0.01, "--noise", help="Noise standard deviation"),
+    # Tiling options
+    tile: bool = typer.Option(False, "--tile", help="Apply image tiling"),
+    tile_size: int = typer.Option(512, "--tile-size", help="Tile size in pixels"),
+    stride: int = typer.Option(256, "--stride", help="Stride between tiles"),
+    min_visibility: float = typer.Option(0.1, "--min-visibility", help="Minimum object visibility in tiles (0-1)"),
+    max_negative_tiles: int = typer.Option(3, "--max-negative-tiles", help="Maximum negative tiles per image"),
+    negative_positive_ratio: float = typer.Option(1.0, "--negative-ratio", help="Negative to positive tile ratio")
 ):
-    """Import a dataset from COCO or YOLO format."""
+    """Import a dataset from COCO or YOLO format with optional transformations."""
     if format_type.lower() not in ['coco', 'yolo']:
         typer.echo(f"❌ Error: Format type must be 'coco' or 'yolo', got '{format_type}'")
         raise typer.Exit(1)
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
+    
+    pipeline = DataPipeline(str(state.data_dir))
+    
+    # Setup transformations if requested
+    if augment or tile:
+        transformation_pipeline = TransformationPipeline()
+        
+        if augment:
+            try:
+                aug_config = AugmentationConfig(
+                    rotation_range=rotation_range,
+                    probability=probability,
+                    brightness_range=brightness_range,
+                    contrast_range=contrast_range,
+                    noise_std=noise_std
+                )
+                aug_transformer = AugmentationTransformer(aug_config)
+                transformation_pipeline.add_transformer(aug_transformer)
+                typer.echo(f"🔧 Added augmentation transformer (probability: {probability})")
+            except Exception as e:
+                typer.echo(f"❌ Error setting up augmentation: {e}")
+                raise typer.Exit(1)
+        
+        if tile:
+            try:
+                tile_config = TilingConfig(
+                    tile_size=tile_size,
+                    stride=stride,
+                    min_visibility=min_visibility,
+                    max_negative_tiles_in_negative_image=max_negative_tiles,
+                    negative_positive_ratio=negative_positive_ratio
+                )
+                tile_transformer = TilingTransformer(tile_config)
+                transformation_pipeline.add_transformer(tile_transformer)
+                typer.echo(f"🔧 Added tiling transformer (tile size: {tile_size}, stride: {stride})")
+            except Exception as e:
+                typer.echo(f"❌ Error setting up tiling: {e}")
+                raise typer.Exit(1)
+        
+        # Create new pipeline with transformations
+        pipeline = DataPipeline(str(state.data_dir), transformation_pipeline)
+    
     try:
         typer.echo(f"🚀 Importing {format_type.upper()} dataset from {source_path}")
         typer.echo(f"📝 Dataset name: {dataset_name}")
+        if augment or tile:
+            typer.echo(f"🔧 Applying transformations: {'augmentation' if augment else ''}{' + tiling' if tile else ''}")
         typer.echo("─" * 50)
+        
         result = pipeline.import_dataset(
             source_path=source_path,
             source_format=format_type.lower(),
-            dataset_name=dataset_name
+            dataset_name=dataset_name,
+            apply_transformations=augment or tile
         )
+        
         if result['success']:
             typer.echo("✅ Import successful!")
             typer.echo(f"📄 Master annotations: {result['master_path']}")
@@ -81,12 +149,10 @@ def import_dataset(
         typer.echo(f"❌ Error: {e}")
         raise typer.Exit(1)
 
-
 @dataset_app.command("list")
 def list_datasets():
     """List all available datasets in master storage."""
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
+    pipeline = DataPipeline(str(state.data_dir))
     try:
         datasets = pipeline.list_datasets()
         if not datasets:
@@ -105,14 +171,12 @@ def list_datasets():
         typer.echo(f"❌ Error: {e}")
         raise typer.Exit(1)
 
-
 @dataset_app.command()
 def info(
     dataset_name: str = typer.Argument(..., help="Name of the dataset")
 ):
     """Get detailed information about a specific dataset."""
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
+    pipeline = DataPipeline(str(state.data_dir))
     try:
         info = pipeline.get_dataset_info(dataset_name)
         typer.echo(f"📁 Dataset: {info['dataset_name']}")
@@ -125,14 +189,12 @@ def info(
         typer.echo(f"🏷️  Categories: {len(info['categories'])}")
         # Check for framework formats
         framework_formats = []
-        coco_dir = Path(project_root) / "data" / "framework_formats" / "coco" / dataset_name
-        yolo_dir = Path(project_root) / "data" / "framework_formats" / "yolo" / dataset_name
-        
+        coco_dir = state.data_dir / "framework_formats" / "coco" / dataset_name
+        yolo_dir = state.data_dir / "framework_formats" / "yolo" / dataset_name
         if coco_dir.exists():
             framework_formats.append({'framework': 'coco', 'path': str(coco_dir)})
         if yolo_dir.exists():
             framework_formats.append({'framework': 'yolo', 'path': str(yolo_dir)})
-            
         if framework_formats:
             typer.echo("\n🔧 Available framework formats:")
             for fmt in framework_formats:
@@ -146,7 +208,6 @@ def info(
         typer.echo(f"❌ Error: {e}")
         raise typer.Exit(1)
 
-
 @dataset_app.command()
 def export(
     dataset_name: str = typer.Argument(..., help="Name of the dataset"),
@@ -156,8 +217,7 @@ def export(
     if framework.lower() not in ['coco', 'yolo']:
         typer.echo(f"❌ Error: Framework must be 'coco' or 'yolo', got '{framework}'")
         raise typer.Exit(1)
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
+    pipeline = DataPipeline(str(state.data_dir))
     try:
         result = pipeline.export_framework_format(dataset_name, framework.lower())
         typer.echo(f"✅ Exported dataset '{dataset_name}' to {framework.upper()} format")
@@ -176,15 +236,12 @@ def export(
         typer.echo(f"❌ Export failed: {e}")
         raise typer.Exit(1)
 
-
 @dataset_app.command()
 def delete(
     dataset_name: str = typer.Argument(..., help="Name of the dataset to delete"),
     force: bool = typer.Option(False, "--force", "-f", help="Force deletion without confirmation")
 ):
     """Delete a dataset from master storage."""
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
     try:
         if not force:
             confirm = typer.confirm(f"Are you sure you want to delete dataset '{dataset_name}'?")
@@ -192,7 +249,7 @@ def delete(
                 typer.echo("🗑️  Deletion cancelled.")
                 return
         # Delete dataset directory
-        dataset_dir = Path(project_root) / "data" / dataset_name
+        dataset_dir = state.data_dir / dataset_name
         if dataset_dir.exists():
             import shutil
             shutil.rmtree(dataset_dir)
@@ -219,8 +276,7 @@ def validate(
     if format_type.lower() not in ['coco', 'yolo']:
         typer.echo(f"❌ Error: Format type must be 'coco' or 'yolo', got '{format_type}'")
         raise typer.Exit(1)
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
+    pipeline = DataPipeline(str(state.data_dir))
     try:
         typer.echo(f"🔍 Validating {format_type.upper()} dataset at {source_path}")
         typer.echo("─" * 50)
@@ -233,7 +289,6 @@ def validate(
             from wildtrain.validators.yolo_validator import YOLOValidator
             validator = YOLOValidator(source_path)
             is_valid, errors, warnings = validator.validate()
-        
         if is_valid:
             typer.echo("✅ Validation passed!")
             typer.echo("🎉 Dataset is ready for import.")
@@ -251,25 +306,23 @@ def validate(
         typer.echo(f"❌ Error: {e}")
         raise typer.Exit(1)
 
-
 @app.command()
 def status():
     """Show the current status of the pipeline."""
-    project_root = Path.cwd()
-    pipeline = DataPipeline(str(project_root))
     try:
         typer.echo("📊 WildTrain Pipeline Status")
         typer.echo("─" * 50)
-        data_dir = project_root / "data"
+        data_dir = state.data_dir
         if data_dir.exists():
             typer.echo(f"📁 Data directory: {data_dir} ✅")
         else:
             typer.echo(f"📁 Data directory: {data_dir} ❌ (not found)")
-        framework_dir = project_root / "data" / "framework_formats"
+        framework_dir = data_dir / "framework_formats"
         if framework_dir.exists():
             typer.echo(f"🔧 Framework formats: {framework_dir} ✅")
         else:
             typer.echo(f"🔧 Framework formats: {framework_dir} ❌ (not found)")
+        pipeline = DataPipeline(str(state.data_dir))
         datasets = pipeline.list_datasets()
         typer.echo(f"📋 Datasets: {len(datasets)} found")
         if datasets:
@@ -279,4 +332,336 @@ def status():
         typer.echo("\n✨ Pipeline is ready!")
     except Exception as e:
         typer.echo(f"❌ Error: {e}")
+        raise typer.Exit(1)
+
+import tempfile
+import shutil
+import os
+import json
+import numpy as np
+
+@dataset_app.command()
+def transform(
+    dataset_name: str = typer.Argument(..., help="Name of the dataset to transform"),
+    # Augmentation options
+    augment: bool = typer.Option(False, "--augment", help="Apply data augmentation"),
+    rotation_range: Tuple[float, float] = typer.Option((-10, 10), "--rotation", help="Rotation range in degrees"),
+    probability: float = typer.Option(0.5, "--probability", help="Augmentation probability (0-1)"),
+    brightness_range: Tuple[float, float] = typer.Option((0.9, 1.1), "--brightness", help="Brightness range"),
+    contrast_range: Tuple[float, float] = typer.Option((0.9, 1.1), "--contrast", help="Contrast range"),
+    noise_std: float = typer.Option(0.01, "--noise", help="Noise standard deviation"),
+    # Tiling options
+    tile: bool = typer.Option(False, "--tile", help="Apply image tiling"),
+    tile_size: int = typer.Option(512, "--tile-size", help="Tile size in pixels"),
+    stride: int = typer.Option(256, "--stride", help="Stride between tiles"),
+    min_visibility: float = typer.Option(0.1, "--min-visibility", help="Minimum object visibility in tiles (0-1)"),
+    max_negative_tiles: int = typer.Option(3, "--max-negative-tiles", help="Maximum negative tiles per image"),
+    negative_positive_ratio: float = typer.Option(1.0, "--negative-ratio", help="Negative to positive tile ratio"),
+    output_name: str = typer.Option(None, "--output-name", help="Name for the transformed dataset (default: {dataset_name}_transformed)")
+):
+    """Apply transformations to an existing dataset."""
+    if not augment and not tile:
+        typer.echo("❌ Error: Must specify at least one transformation (--augment or --tile)")
+        raise typer.Exit(1)
+    
+    if output_name is None:
+        output_name = f"{dataset_name}_transformed"
+    
+    pipeline = DataPipeline(str(state.data_dir))
+    
+    # Setup transformations
+    transformation_pipeline = TransformationPipeline()
+    
+    if augment:
+        try:
+            aug_config = AugmentationConfig(
+                rotation_range=rotation_range,
+                probability=probability,
+                brightness_range=brightness_range,
+                contrast_range=contrast_range,
+                noise_std=noise_std
+            )
+            aug_transformer = AugmentationTransformer(aug_config)
+            transformation_pipeline.add_transformer(aug_transformer)
+            typer.echo(f"🔧 Added augmentation transformer (probability: {probability})")
+        except Exception as e:
+            typer.echo(f"❌ Error setting up augmentation: {e}")
+            raise typer.Exit(1)
+    
+    if tile:
+        try:
+            tile_config = TilingConfig(
+                tile_size=tile_size,
+                stride=stride,
+                min_visibility=min_visibility,
+                max_negative_tiles_in_negative_image=max_negative_tiles,
+                negative_positive_ratio=negative_positive_ratio
+            )
+            tile_transformer = TilingTransformer(tile_config)
+            transformation_pipeline.add_transformer(tile_transformer)
+            typer.echo(f"🔧 Added tiling transformer (tile size: {tile_size}, stride: {stride})")
+        except Exception as e:
+            typer.echo(f"❌ Error setting up tiling: {e}")
+            raise typer.Exit(1)
+    
+    try:
+        typer.echo(f"🔧 Applying transformations to dataset '{dataset_name}'")
+        typer.echo(f"📝 Output dataset name: {output_name}")
+        typer.echo("─" * 50)
+        
+        # Load the original dataset info
+        original_info = pipeline.get_dataset_info(dataset_name)
+        typer.echo(f"📊 Original dataset: {original_info['total_images']} images, {original_info['total_annotations']} annotations")
+        
+        # Apply transformations
+        # Note: This is a simplified approach - in a real implementation, you'd need to
+        # load the master data, apply transformations, and save as a new dataset
+        typer.echo("⚠️  Transformation command not yet fully implemented")
+        typer.echo("💡 Use --augment or --tile with the import command instead")
+        raise typer.Exit(1)
+        
+    except Exception as e:
+        typer.echo(f"❌ Error: {e}")
+        raise typer.Exit(1)
+
+@app.command()
+def demo(
+    use_real_data: bool = typer.Option(False, "--use-real-data", help="Use real data instead of synthetic data"),
+    keep_temp: bool = typer.Option(False, "--keep-temp", help="Keep temporary files after processing"),
+    # Transformation options
+    augment: bool = typer.Option(False, "--augment", help="Apply data augmentation to synthetic demo"),
+    tile: bool = typer.Option(False, "--tile", help="Apply image tiling to synthetic demo"),
+    rotation_range: Tuple[float, float] = typer.Option((-10, 10), "--rotation", help="Rotation range in degrees"),
+    probability: float = typer.Option(0.5, "--probability", help="Augmentation probability (0-1)"),
+    tile_size: int = typer.Option(512, "--tile-size", help="Tile size in pixels"),
+    stride: int = typer.Option(256, "--stride", help="Stride between tiles")
+):
+    """Run a full workflow demo (synthetic or real data) with optional transformations."""
+    # Determine data directory
+    if state.data_dir and not (str(state.data_dir).startswith(str(Path(tempfile.gettempdir())))):
+        data_dir = state.data_dir
+        temp_dir = None
+        typer.echo(f"[INFO] Using specified data directory: {data_dir}")
+        data_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        temp_dir = tempfile.mkdtemp()
+        data_dir = Path(temp_dir)
+        typer.echo(f"[INFO] Created temp directory: {temp_dir}")
+
+    def setup_real_data_paths():
+        real_data_paths = {
+            'coco': {
+                'annotation_path': Path(r"D:/workspace/savmap/coco/annotations.json"),
+                'description': "COCO format annotation file"
+            },
+            'yolo': {
+                'data_yaml_path': Path(r"D:/workspace/savmap/yolo/data.yaml"),
+                'description': "YOLO format data.yaml file"
+            }
+        }
+        return real_data_paths
+
+    def check_data_availability(real_data_paths):
+        available_data = {}
+        for format_name, data_info in real_data_paths.items():
+            if format_name == 'coco':
+                path = data_info['annotation_path']
+                if path.exists():
+                    available_data[format_name] = {
+                        'path': path,
+                        'description': data_info['description']
+                    }
+                    typer.echo(f"[INFO] Found COCO data: {path}")
+                else:
+                    typer.echo(f"[WARNING] COCO data not found: {path}")
+            elif format_name == 'yolo':
+                path = data_info['data_yaml_path']
+                if path.exists():
+                    available_data[format_name] = {
+                        'path': path,
+                        'description': data_info['description']
+                    }
+                    typer.echo(f"[INFO] Found YOLO data: {path}")
+                else:
+                    typer.echo(f"[WARNING] YOLO data not found: {path}")
+        return available_data
+
+    def create_synthetic_coco_data(images_dir: Path, annotation_file: Path):
+        images = []
+        for i in range(2):
+            img_name = f"test_image_{i+1}.jpg"
+            img_path = images_dir / img_name
+            arr = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+            try:
+                import cv2
+                cv2.imwrite(str(img_path), arr)
+            except ImportError:
+                from PIL import Image
+                Image.fromarray(arr).save(str(img_path))
+            images.append({
+                "id": i+1,
+                "file_name": img_name,
+                "width": 640,
+                "height": 480,
+                "split": "train"
+            })
+        annotations = [
+            {
+                "id": 1,
+                "image_id": 1,
+                "category_id": 1,
+                "bbox": [100, 100, 200, 150],
+                "area": 30000,
+                "iscrowd": 0
+            },
+            {
+                "id": 2,
+                "image_id": 2,
+                "category_id": 1,
+                "bbox": [150, 150, 250, 200],
+                "area": 25000,
+                "iscrowd": 0
+            }
+        ]
+        categories = [
+            {"id": 1, "name": "test_category", "supercategory": "test"}
+        ]
+        coco_data = {
+            "images": images,
+            "annotations": annotations,
+            "categories": categories
+        }
+        with open(annotation_file, 'w') as f:
+            json.dump(coco_data, f)
+
+    try:
+        typer.echo("--- WildTrain Data Pipeline CLI Demo ---")
+        
+        # Setup transformations if requested
+        transformation_pipeline = None
+        if augment or tile:
+            transformation_pipeline = TransformationPipeline()
+            
+            if augment:
+                try:
+                    aug_config = AugmentationConfig(
+                        rotation_range=rotation_range,
+                        probability=probability
+                    )
+                    aug_transformer = AugmentationTransformer(aug_config)
+                    transformation_pipeline.add_transformer(aug_transformer)
+                    typer.echo(f"[INFO] Added augmentation transformer (probability: {probability})")
+                except Exception as e:
+                    typer.echo(f"[WARNING] Could not add augmentation: {e}")
+            
+            if tile:
+                try:
+                    tile_config = TilingConfig(
+                        tile_size=tile_size,
+                        stride=stride
+                    )
+                    tile_transformer = TilingTransformer(tile_config)
+                    transformation_pipeline.add_transformer(tile_transformer)
+                    typer.echo(f"[INFO] Added tiling transformer (tile size: {tile_size}, stride: {stride})")
+                except Exception as e:
+                    typer.echo(f"[WARNING] Could not add tiling: {e}")
+        
+        pipeline = DataPipeline(str(data_dir), transformation_pipeline)
+        typer.echo("[INFO] DataPipeline initialized.")
+        status = pipeline.get_pipeline_status()
+        typer.echo(f"[INFO] Pipeline status:")
+        typer.echo(f"  - Master data directory: {status['master_data_dir']}")
+        typer.echo(f"  - Supported formats: {status['supported_formats']}")
+        typer.echo(f"  - Available datasets: {status['available_datasets']}")
+
+        if use_real_data:
+            real_data_paths = setup_real_data_paths()
+            available_data = check_data_availability(real_data_paths)
+            if not available_data:
+                typer.echo("[WARNING] No real data found. Falling back to synthetic data.")
+                use_real_data = False
+        if not use_real_data:
+            # Synthetic demo
+            typer.echo("\n--- Processing Synthetic Dataset ---")
+            # Create synthetic data in the data directory
+            images_dir = data_dir / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            annotation_file = data_dir / "annotations_train.json"
+            create_synthetic_coco_data(images_dir, annotation_file)
+            typer.echo(f"[INFO] Synthetic COCO data created at {annotation_file}")
+            result = pipeline.import_dataset(
+                source_path=str(annotation_file),
+                source_format="coco",
+                dataset_name="synthetic_demo_dataset",
+                apply_transformations=augment or tile
+            )
+            if result['success']:
+                typer.echo(f"[SUCCESS] Imported synthetic dataset")
+                typer.echo(f"Master annotations: {result['master_path']}")
+                # Export to framework formats
+                for export_format in ['coco', 'yolo']:
+                    try:
+                        export_result = pipeline.export_framework_format("synthetic_demo_dataset", export_format)
+                        typer.echo(f"[SUCCESS] Exported to {export_format.upper()}: {export_result['output_path']}")
+                    except Exception as e:
+                        typer.echo(f"[WARNING] Failed to export to {export_format.upper()}: {e}")
+            else:
+                typer.echo(f"[ERROR] Failed to import synthetic dataset")
+                typer.echo(f"Error: {result.get('error', 'Unknown error')}")
+        else:
+            # Real data demo
+            for format_type, data_info in available_data.items():
+                dataset_name = f"real_{format_type}_dataset"
+                typer.echo(f"\n--- Processing {format_type.upper()} Dataset ---")
+                typer.echo(f"Source: {data_info['path']}")
+                typer.echo(f"Description: {data_info['description']}")
+                result = pipeline.import_dataset(
+                    source_path=str(data_info['path']),
+                    source_format=format_type,
+                    dataset_name=dataset_name,
+                    apply_transformations=augment or tile
+                )
+                if result['success']:
+                    typer.echo(f"[SUCCESS] Imported dataset '{dataset_name}'")
+                    typer.echo(f"Master annotations: {result['master_path']}")
+                    # Export to framework formats
+                    for export_format in ['coco', 'yolo']:
+                        try:
+                            export_result = pipeline.export_framework_format(dataset_name, export_format)
+                            typer.echo(f"[SUCCESS] Exported to {export_format.upper()}: {export_result['output_path']}")
+                        except Exception as e:
+                            typer.echo(f"[WARNING] Failed to export to {export_format.upper()}: {e}")
+                else:
+                    typer.echo(f"[ERROR] Failed to import dataset '{dataset_name}'")
+                    typer.echo(f"Error: {result.get('error', 'Unknown error')}")
+                    if result.get('validation_errors'):
+                        typer.echo("Validation errors:")
+                        for error in result['validation_errors']:
+                            typer.echo(f"  - {error}")
+                    if result.get('hints'):
+                        typer.echo("Hints:")
+                        for hint in result['hints']:
+                            typer.echo(f"  - {hint}")
+        # List all datasets
+        typer.echo("\n--- Available Datasets ---")
+        datasets = pipeline.list_datasets()
+        if datasets:
+            for dataset in datasets:
+                typer.echo(f"Dataset: {dataset['dataset_name']}")
+                typer.echo(f"  - Total images: {dataset['total_images']}")
+                typer.echo(f"  - Total annotations: {dataset['total_annotations']}")
+                typer.echo(f"  - Images by split: {dataset['images_by_split']}")
+                typer.echo(f"  - Annotations by type: {dataset['annotations_by_type']}")
+        else:
+            typer.echo("No datasets found.")
+        typer.echo("\n--- Demo Complete ---")
+        if keep_temp and temp_dir:
+            typer.echo(f"[INFO] Keeping temp directory: {temp_dir}")
+        elif temp_dir:
+            typer.echo(f"[INFO] Cleaning up temp directory: {temp_dir}")
+            shutil.rmtree(temp_dir)
+    except Exception as e:
+        typer.echo(f"[ERROR] Demo failed: {e}")
+        if temp_dir and not keep_temp:
+            shutil.rmtree(temp_dir)
         raise typer.Exit(1) 

@@ -2,20 +2,20 @@
 Data pipeline for managing deep learning datasets with transformations.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 import logging
 from pathlib import Path
+import shutil
+import shutil
 import json
-import numpy as np
 import cv2
 import os
 
-from ..adapters.base_adapter import BaseAdapter
 from ..converters.coco_to_master import COCOToMasterConverter
 from ..converters.yolo_to_master import YOLOToMasterConverter
 from ..validators.coco_validator import COCOValidator
 from ..validators.yolo_validator import YOLOValidator
-from ..transformations import TransformationPipeline, AugmentationTransformer, TilingTransformer
+from ..transformations import TransformationPipeline
 
 
 class DataPipeline:
@@ -207,23 +207,33 @@ class DataPipeline:
         with open(annotations_file, 'w') as f:
             json.dump(master_data, f, indent=2)
         
-        # Save images (copy or symlink)
-        images_dir = dataset_dir / 'images'
-        images_dir.mkdir(exist_ok=True)
+        self.logger.info(f"Copying images to Master directory: {dataset_dir}")
         
+        # Save images to the write split
+        images_dir = dataset_dir / 'images'
+        for split in ['train', 'val', 'test']:
+            (images_dir / split).mkdir(exist_ok=True, parents=True) 
+
+        success = 0
+        failed = 0
         for image_info in master_data['images']:
+            split = image_info['split']
             source_path = Path(image_info['file_name'])
-            if not source_path.is_absolute():
-                source_path = self.master_data_dir / source_path
-            
-            target_path = images_dir / source_path.name
-            
+
+            target_path = images_dir / split / source_path.name
             if source_path.exists():
-                # Create symlink or copy
+                # Copy the file
                 if not target_path.exists():
-                    target_path.symlink_to(source_path)
+                    shutil.copy2(source_path, target_path)
+                success += 1
+            else:
+                #self.logger.warning(f"Source path does not exist: {source_path}")
+                failed += 1
         
         self.logger.info(f"Saved master data to {dataset_dir}")
+        self.logger.info(f"Successfully copied {success}/{len(master_data['images'])} images")
+        if failed:
+            self.logger.warning(f"Failed to copy {failed}/{len(master_data['images'])} images")
     
     def export_dataset(self, dataset_name: str, target_format: str, target_path: str) -> bool:
         """
@@ -427,6 +437,8 @@ class DataPipeline:
     def _create_image_symlinks(self, dataset_name: str, target_dir: Path, framework: str):
         """Create symlinks for images in the target directory."""
         master_images_dir = self.master_data_dir / dataset_name / "images"
+
+        self.logger.info(f"Creating symlinks for images in {target_dir} for {framework}")
         
         if not master_images_dir.exists():
             raise FileNotFoundError(f"Master images directory not found: {master_images_dir}")
@@ -437,15 +449,16 @@ class DataPipeline:
             split_dir.mkdir(exist_ok=True)
             
             master_split_dir = master_images_dir / split
+            master_split_dir.mkdir(exist_ok=True)
+
             if master_split_dir.exists():
                 # Create symlinks for each image
                 for image_file in master_split_dir.iterdir():
                     if image_file.is_file() and image_file.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
                         symlink_path = split_dir / image_file.name
-                        
                         # Create relative symlink to master image
                         relative_path = os.path.relpath(image_file, split_dir)
-                        
+
                         # Remove existing symlink if it exists
                         if symlink_path.exists():
                             symlink_path.unlink()
@@ -453,10 +466,13 @@ class DataPipeline:
                         # Create symlink
                         try:
                             os.symlink(relative_path, symlink_path)
-                        except OSError:
+                            #self.logger.info(f"Created symlink: {symlink_path}")
+                        except Exception as e:
+                            self.logger.warning(f"Could not create symlink: {e}")
                             # Fallback to copying if symlink fails (e.g., on Windows without admin)
-                            import shutil
                             shutil.copy2(image_file, symlink_path)
+            else:
+                self.logger.warning(f"Master split directory not found: {master_split_dir}")
     
     def _save_yolo_annotations(self, labels_dir: Path, yolo_data: Dict[str, Any]):
         """Save YOLO label files."""

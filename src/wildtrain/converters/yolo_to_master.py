@@ -26,7 +26,6 @@ class YOLOToMasterConverter:
             filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
         """
         # Validate before loading
-        from ..validators.yolo_validator import YOLOValidator
         validator = YOLOValidator(self.yolo_data_yaml_path, filter_invalid_annotations=filter_invalid_annotations)
         is_valid, errors, warnings = validator.validate()
         
@@ -42,7 +41,7 @@ class YOLOToMasterConverter:
             self.yolo_data = yaml.safe_load(f)
         self.base_path = self.yolo_data.get('path')
         if self.base_path and not os.path.isabs(self.base_path):
-            self.base_path = os.path.abspath(os.path.join(os.path.dirname(self.yolo_data_yaml_path), self.base_path))
+            self.base_path = os.path.abspath(os.path.dirname(self.yolo_data_yaml_path))
         if filter_invalid_annotations:
             skipped_count = validator.get_skipped_count()
             if skipped_count > 0:
@@ -133,7 +132,7 @@ class YOLOToMasterConverter:
             # Create master image entry
             master_image = {
                 'id': img_id,
-                'file_name': os.path.basename(img_file),
+                'file_name': os.path.abspath(img_file),
                 'width': width,
                 'height': height,
                 'split': split_name,
@@ -149,6 +148,7 @@ class YOLOToMasterConverter:
                     ann['id'] = annotation_id
                     annotation_id += 1
                     all_annotations.append(ann)
+
 
     def save_master_annotation(self, master_data: Dict[str, Any], output_path: str) -> None:
         """
@@ -174,6 +174,7 @@ class YOLOToMasterConverter:
         return str(path).replace('images', 'labels')
 
     def _get_image_dimensions(self, image_file: str) -> Tuple[int, int]:
+        assert os.path.exists(image_file), f"Image file does not exist: {image_file}"
         with Image.open(image_file) as image:
             width, height = image.size
             return width, height
