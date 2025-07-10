@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Unified Annotation Format",
+  "type": "object",
+  "required": ["dataset_info", "images", "annotations"],
+  "properties": {
+    "dataset_info": {
+      "type": "object",
+      "required": ["name", "version", "task_type", "classes", "schema_version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "task_type": {
+          "type": ["string", "array"],
+          "items": { "type": "string" },
+          "enum": ["classification", "detection", "segmentation", "keypoints"]
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": ["integer", "string"] },
+              "name": { "type": "string" },
+              "supercategory": { "type": "string" }
+            }
+          }
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "file_name", "width", "height", "split", "path"],
+        "properties": {
+          "id": { "type": ["integer", "string"] },
+          "file_name": { "type": "string" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "split": { "type": "string" },
+          "path": { "type": "string" },
+          "category_id": { "type": ["integer", "string"] },
+          "category_ids": {
+            "type": "array",
+            "items": { "type": ["integer", "string"] }
+          },
+          "source": { "type": "string" },
+          "license": { "type": "string" },
+          "date_captured": { "type": "string", "format": "date-time" },
+          "custom": { "type": "object" }
+        }
+      }
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "image_id", "category_id"],
+        "properties": {
+          "id": { "type": ["integer", "string"] },
+          "image_id": { "type": ["integer", "string"] },
+          "category_id": { "type": ["integer", "string"] },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "[x, y, width, height]"
+          },
+          "area": { "type": "number" },
+          "iscrowd": { "type": "integer", "enum": [0, 1] },
+          "segmentation": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": { "type": "string", "enum": ["polygon"] },
+                  "points": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": { "type": "number" }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["type", "counts", "size"],
+                "properties": {
+                  "type": { "type": "string", "enum": ["rle"] },
+                  "counts": { "type": "string" },
+                  "size": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              },
+              {
+                "type": "array",
+                "items": { "type": "number" }
+              }
+            ]
+          },
+          "keypoints": {
+            "type": "array",
+            "items": { "type": "number" }
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
+          "group_id": { "type": ["integer", "string"] },
+          "relationships": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "target_id"],
+              "properties": {
+                "type": { "type": "string" },
+                "target_id": { "type": ["integer", "string"] }
+              }
+            }
+          },
+          "custom": { "type": "object" }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "dataset_info": { "type": "object" },
+        "class_mapping": { "type": "object" },
+        "split_info": { "type": "object" }
+      }
+    }
+  },
+  "additionalProperties": false
+} 
