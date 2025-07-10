@@ -566,9 +566,10 @@ class TestTransformationPipeline:
         
         # Check each output
         for output in outputs:
-            assert 'image' in output
-            assert 'annotations' in output
-            assert 'info' in output
+            for data in output:
+                assert 'image' in data
+                assert 'annotations' in data
+                assert 'info' in data
 
 
 if __name__ == "__main__":

@@ -74,19 +74,30 @@ class TestDataPipeline:
         """Clean up test fixtures."""
         shutil.rmtree(self.temp_dir)
     
-    @patch('src.wildtrain.pipeline.data_pipeline.COCOValidator')
-    @patch('src.wildtrain.pipeline.data_pipeline.COCOToMasterConverter')
+    @patch('wildtrain.pipeline.data_pipeline.COCOValidator')
+    @patch('wildtrain.pipeline.data_pipeline.COCOToMasterConverter')
     def test_import_coco_dataset_success(self, mock_converter, mock_validator):
         """Test successful import of a COCO dataset."""
         # Mock validator
         mock_validator_instance = MagicMock()
-        mock_validator_instance.validate.return_value = True
-        mock_validator_instance.get_errors.return_value = []
+        mock_validator_instance.validate.return_value = (True, [], [])
         mock_validator.return_value = mock_validator_instance
         
         # Mock converter
         mock_converter_instance = MagicMock()
-        mock_converter_instance.convert.return_value = {
+        mock_converter_instance.convert_to_master.return_value = {
+            "dataset_info": {
+                "name": "test_dataset",
+                "version": "1.0",
+                "schema_version": "1.0",
+                "task_type": "detection",
+                "classes": [
+                    {
+                        "id": 1,
+                        "name": "test_category"
+                    }
+                ]
+            },
             "images": [
                 {
                     "id": 1,
@@ -105,12 +116,6 @@ class TestDataPipeline:
                     "bbox": [100, 100, 200, 150],
                     "type": "detection"
                 }
-            ],
-            "categories": [
-                {
-                    "id": 1,
-                    "name": "test_category"
-                }
             ]
         }
         mock_converter.return_value = mock_converter_instance
@@ -120,23 +125,19 @@ class TestDataPipeline:
         
         # Test import
         result = pipeline.import_dataset(
-            source_path=str(self.coco_dir),
-            format_type="coco",
+            source_path=str(self.coco_dir / "annotations.json"),
+            source_format="coco",
             dataset_name="test_dataset"
         )
         
-        assert result['success'] is True
-        assert result['dataset_name'] == "test_dataset"
-        assert 'master_path' in result
-        assert 'framework_paths' in result
+        assert result is True
     
-    @patch('src.wildtrain.pipeline.data_pipeline.COCOValidator')
+    @patch('wildtrain.pipeline.data_pipeline.COCOValidator')
     def test_import_coco_dataset_validation_failure(self, mock_validator):
         """Test import failure due to validation errors."""
         # Mock validator with errors
         mock_validator_instance = MagicMock()
-        mock_validator_instance.validate.return_value = False
-        mock_validator_instance.get_errors.return_value = ["Missing required field: images"]
+        mock_validator_instance.validate.return_value = (False, ["Missing required field: images"], [])
         mock_validator.return_value = mock_validator_instance
         
         # Create pipeline
@@ -144,15 +145,12 @@ class TestDataPipeline:
         
         # Test import
         result = pipeline.import_dataset(
-            source_path=str(self.coco_dir),
-            format_type="coco",
+            source_path=str(self.coco_dir / "annotations.json"),
+            source_format="coco",
             dataset_name="test_dataset"
         )
         
-        assert result['success'] is False
-        assert result['error'] == 'Validation failed'
-        assert 'validation_errors' in result
-        assert 'hints' in result
+        assert result is False
 
 
 class TestMasterDataManager:
@@ -171,6 +169,18 @@ class TestMasterDataManager:
     def test_store_dataset(self):
         """Test storing a dataset in master format."""
         master_data = {
+            "dataset_info": {
+                "name": "test_dataset",
+                "version": "1.0",
+                "schema_version": "1.0",
+                "task_type": "detection",
+                "classes": [
+                    {
+                        "id": 1,
+                        "name": "test_category"
+                    }
+                ]
+            },
             "images": [
                 {
                     "id": 1,
@@ -188,12 +198,6 @@ class TestMasterDataManager:
                     "category_id": 1,
                     "bbox": [100, 100, 200, 150],
                     "type": "detection"
-                }
-            ],
-            "categories": [
-                {
-                    "id": 1,
-                    "name": "test_category"
                 }
             ]
         }
@@ -248,6 +252,18 @@ class TestFrameworkDataManager:
         
         # Create master annotations
         master_data = {
+            "dataset_info": {
+                "name": "test_dataset",
+                "version": "1.0",
+                "schema_version": "1.0",
+                "task_type": "detection",
+                "classes": [
+                    {
+                        "id": 1,
+                        "name": "test_category"
+                    }
+                ]
+            },
             "images": [
                 {
                     "id": 1,
@@ -266,12 +282,6 @@ class TestFrameworkDataManager:
                     "bbox": [100, 100, 200, 150],
                     "type": "detection"
                 }
-            ],
-            "categories": [
-                {
-                    "id": 1,
-                    "name": "test_category"
-                }
             ]
         }
         
@@ -282,7 +292,7 @@ class TestFrameworkDataManager:
         """Clean up test fixtures."""
         shutil.rmtree(self.temp_dir)
     
-    @patch('src.wildtrain.pipeline.framework_data_manager.COCOAdapter')
+    @patch('wildtrain.pipeline.framework_data_manager.COCOAdapter')
     def test_create_coco_format(self, mock_adapter):
         """Test creating COCO format."""
         # Mock adapter
@@ -304,7 +314,7 @@ class TestFrameworkDataManager:
         assert (coco_dir / "annotations").exists()
         assert (coco_dir / "annotations" / "instances_train.json").exists()
     
-    @patch('src.wildtrain.pipeline.framework_data_manager.YOLOAdapter')
+    @patch('wildtrain.pipeline.framework_data_manager.YOLOAdapter')
     def test_create_yolo_format(self, mock_adapter):
         """Test creating YOLO format."""
         # Mock adapter

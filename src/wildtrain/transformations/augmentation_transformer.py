@@ -77,8 +77,9 @@ class AugmentationTransformer(BaseTransformer):
             A.GaussianBlur(blur_limit=(3, 5), p=0.3)
         )
         
-        # Create the pipeline
-        self.pipeline = A.Compose(
+        # Create the pipeline - only include bbox_params if we have bboxes
+        self.pipeline = A.Compose(transforms)
+        self.pipeline_with_bboxes = A.Compose(
             transforms,
             bbox_params=A.BboxParams(
                 format='coco',
@@ -114,7 +115,11 @@ class AugmentationTransformer(BaseTransformer):
         
         # Apply augmentation
         try:
-            augmented_data = self.pipeline(**albumentations_data)
+            # Use appropriate pipeline based on whether we have bboxes
+            if 'bboxes' in albumentations_data and albumentations_data['bboxes']:
+                augmented_data = self.pipeline_with_bboxes(**albumentations_data)
+            else:
+                augmented_data = self.pipeline(**albumentations_data)
             augmented_image, transformed_annotations = self._process_augmented_annotations(
                 augmented_data, annotations
             )

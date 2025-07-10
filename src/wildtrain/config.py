@@ -1,5 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Dict, Any
+from pathlib import Path
+
+ROOT = Path(__file__).parents[2]
 
 @dataclass
 class AugmentationConfig:

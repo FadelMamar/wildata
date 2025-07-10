@@ -105,14 +105,6 @@ class TransformationPipeline:
     def transform_batch(self, inputs: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
         """
         Transform a batch of images and annotations.
-        
-        Args:
-            images: List of input images
-            annotations_list: List of annotation lists for each image
-            image_info_list: List of image info dictionaries
-            
-        Returns:
-            List of tuples (transformed_image, transformed_annotations, updated_image_info)
         """
         results = []
         

@@ -56,9 +56,8 @@ def import_dataset(
         typer.echo("─" * 50)
         result = pipeline.import_dataset(
             source_path=source_path,
-            format_type=format_type.lower(),
-            dataset_name=dataset_name,
-            validation_hints=not no_hints
+            source_format=format_type.lower(),
+            dataset_name=dataset_name
         )
         if result['success']:
             typer.echo("✅ Import successful!")
@@ -124,7 +123,16 @@ def info(
         typer.echo(f"📂 Images by split: {info['images_by_split']}")
         typer.echo(f"🎯 Annotations by type: {info['annotations_by_type']}")
         typer.echo(f"🏷️  Categories: {len(info['categories'])}")
-        framework_formats = pipeline.framework_data_manager.list_framework_formats(dataset_name)
+        # Check for framework formats
+        framework_formats = []
+        coco_dir = Path(project_root) / "data" / "framework_formats" / "coco" / dataset_name
+        yolo_dir = Path(project_root) / "data" / "framework_formats" / "yolo" / dataset_name
+        
+        if coco_dir.exists():
+            framework_formats.append({'framework': 'coco', 'path': str(coco_dir)})
+        if yolo_dir.exists():
+            framework_formats.append({'framework': 'yolo', 'path': str(yolo_dir)})
+            
         if framework_formats:
             typer.echo("\n🔧 Available framework formats:")
             for fmt in framework_formats:
@@ -183,11 +191,14 @@ def delete(
             if not confirm:
                 typer.echo("🗑️  Deletion cancelled.")
                 return
-        success = pipeline.master_data_manager.delete_dataset(dataset_name)
-        if success:
+        # Delete dataset directory
+        dataset_dir = Path(project_root) / "data" / dataset_name
+        if dataset_dir.exists():
+            import shutil
+            shutil.rmtree(dataset_dir)
             typer.echo(f"✅ Dataset '{dataset_name}' deleted successfully.")
         else:
-            typer.echo(f"❌ Failed to delete dataset '{dataset_name}'.")
+            typer.echo(f"❌ Dataset '{dataset_name}' not found.")
             raise typer.Exit(1)
     except FileNotFoundError:
         typer.echo(f"❌ Dataset '{dataset_name}' not found.")
@@ -213,22 +224,27 @@ def validate(
     try:
         typer.echo(f"🔍 Validating {format_type.upper()} dataset at {source_path}")
         typer.echo("─" * 50)
-        validation_result = pipeline._validate_dataset(
-            Path(source_path), 
-            format_type.lower(), 
-            True
-        )
-        if validation_result['is_valid']:
+        # Validate dataset
+        if format_type.lower() == 'coco':
+            from wildtrain.validators.coco_validator import COCOValidator
+            validator = COCOValidator(source_path)
+            is_valid, errors, warnings = validator.validate()
+        elif format_type.lower() == 'yolo':
+            from wildtrain.validators.yolo_validator import YOLOValidator
+            validator = YOLOValidator(source_path)
+            is_valid, errors, warnings = validator.validate()
+        
+        if is_valid:
             typer.echo("✅ Validation passed!")
             typer.echo("🎉 Dataset is ready for import.")
         else:
             typer.echo("❌ Validation failed!")
             typer.echo("\n🔍 Validation errors:")
-            for error in validation_result['errors']:
+            for error in errors:
                 typer.echo(f"  - {error}")
-            if 'hints' in validation_result:
+            if warnings:
                 typer.echo("\n💡 Hints:")
-                for hint in validation_result['hints']:
+                for hint in warnings:
                     typer.echo(f"  - {hint}")
             raise typer.Exit(1)
     except Exception as e:
@@ -249,11 +265,11 @@ def status():
             typer.echo(f"📁 Data directory: {data_dir} ✅")
         else:
             typer.echo(f"📁 Data directory: {data_dir} ❌ (not found)")
-        framework_dir = project_root / "framework_configs"
+        framework_dir = project_root / "data" / "framework_formats"
         if framework_dir.exists():
-            typer.echo(f"🔧 Framework configs: {framework_dir} ✅")
+            typer.echo(f"🔧 Framework formats: {framework_dir} ✅")
         else:
-            typer.echo(f"🔧 Framework configs: {framework_dir} ❌ (not found)")
+            typer.echo(f"🔧 Framework formats: {framework_dir} ❌ (not found)")
         datasets = pipeline.list_datasets()
         typer.echo(f"📋 Datasets: {len(datasets)} found")
         if datasets:
