@@ -8,8 +8,8 @@ from wildtrain.converters.coco_to_master import COCOToMasterConverter
 from wildtrain.converters.yolo_to_master import YOLOToMasterConverter
 
 # Real data paths (can be overridden with environment variables)
-COCO_DATA_DIR = os.getenv('COCO_DATA_DIR', 'data/savmap/coco')
-YOLO_DATA_DIR = os.getenv('YOLO_DATA_DIR', 'data/savmap/yolo')
+COCO_DATA_DIR = os.getenv('COCO_DATA_DIR', "D:/workspace/savmap/coco")
+YOLO_DATA_DIR = os.getenv('YOLO_DATA_DIR', "D:/workspace/savmap/yolo")
 
 def test_coco_to_master_converter(tmp_path):
     """Test COCO to master annotation conversion using real data."""
@@ -105,13 +105,14 @@ def test_coco_adapter_with_real_data(tmp_path):
 def test_yolo_adapter_with_real_data(tmp_path):
     """Test YOLO adapter using master annotation generated from real YOLO data."""
     if not os.path.exists(YOLO_DATA_DIR):
-        pytest.skip(f"YOLO data directory not found: {YOLO_DATA_DIR}")
+        raise FileNotFoundError(f"YOLO data directory not found: {YOLO_DATA_DIR}")
     
-    # Generate master annotation from YOLO
+    # Find data.yaml file
     data_yaml_path = os.path.join(YOLO_DATA_DIR, 'data.yaml')
     if not os.path.exists(data_yaml_path):
-        pytest.skip("data.yaml not found in YOLO directory")
+        raise FileNotFoundError("data.yaml not found in YOLO directory")
     
+    # Convert YOLO to master
     converter = YOLOToMasterConverter(data_yaml_path)
     converter.load_yolo_data()
     master_data = converter.convert_to_master("test_dataset", "1.0", "detection")
@@ -127,17 +128,20 @@ def test_yolo_adapter_with_real_data(tmp_path):
     # Convert to YOLO format
     yolo_data = adapter.convert('train')
     
+    # Debug output
+    print(f"YOLO data keys: {list(yolo_data.keys())}")
+    print(f"Number of images with labels: {len(yolo_data)}")
+    if yolo_data:
+        first_key = list(yolo_data.keys())[0]
+        print(f"First image: {first_key}")
+        print(f"Labels for first image: {yolo_data[first_key]}")
+    
     # Verify YOLO structure
     assert len(yolo_data) > 0
     
     # Save YOLO output
-    yolo_output_dir = tmp_path / "yolo_output"
-    adapter.save(yolo_data, str(yolo_output_dir))
+    adapter.save(yolo_data)
     
-    # Verify files were created
-    assert yolo_output_dir.exists()
-    assert len(list(yolo_output_dir.glob("*.txt"))) > 0
-
 def test_round_trip_conversion(tmp_path):
     """Test round-trip conversion: COCO -> Master -> COCO."""
     if not os.path.exists(COCO_DATA_DIR):

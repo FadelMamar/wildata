@@ -1,8 +1,11 @@
 import json
 import os
 from typing import Any, Dict, List
+from pathlib import Path
 from .base_adapter import BaseAdapter
+import logging
 
+logger = logging.getLogger(__name__)
 class YOLOAdapter(BaseAdapter):
     """
     Adapter for converting the master annotation format to YOLO format.
@@ -33,20 +36,24 @@ class YOLOAdapter(BaseAdapter):
                 image_labels[img['file_name']].append(yolo_line)
         return image_labels
 
-    def save(self, yolo_data: Dict[str, List[str]], output_dir: str) -> None:
+    def save(self, yolo_data: Dict[str, List[str]],) -> None:
         """
         Save the YOLO-formatted annotation files to the output directory.
         Args:
             yolo_data (Dict[str, List[str]]): Mapping from image file names to YOLO label lines.
             output_dir (str): Directory to save the YOLO label files.
         """
-        os.makedirs(output_dir, exist_ok=True)
+        labels_dir = Path(list(yolo_data.keys())[0]).parent
+        labels_dir = str(labels_dir).replace("images", "labels")
+        Path(labels_dir).mkdir(exist_ok=True, parents=True)
         for image_file, label_lines in yolo_data.items():
-            label_file = os.path.splitext(image_file)[0] + '.txt'
-            label_path = os.path.join(output_dir, label_file)
+            label_file = Path(image_file).with_suffix('.txt').name
+            label_path = Path(labels_dir) / label_file
             with open(label_path, 'w', encoding='utf-8') as f:
                 for line in label_lines:
                     f.write(line + '\n')
+
+        logger.info(f"Saved {len(yolo_data)} label files to {labels_dir}")
 
     def save_data_yaml(self, class_names: List[str], split_image_dirs: Dict[str, str], output_path: str) -> None:
         """

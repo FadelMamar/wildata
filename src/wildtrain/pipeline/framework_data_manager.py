@@ -8,11 +8,13 @@ import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import logging
+import json
+import tempfile
 
 from ..adapters.coco_adapter import COCOAdapter
 from ..adapters.yolo_adapter import YOLOAdapter
 
-
+logger = logging.getLogger(__name__)
 class FrameworkDataManager:
     """
     Manages framework-specific data formats using symlinks to master data.
@@ -90,14 +92,25 @@ class FrameworkDataManager:
         
         # Generate COCO annotations using adapter
         master_data = self._load_master_data(dataset_name)
-        adapter = COCOAdapter()
-        coco_data = adapter.convert_to_format(master_data)
         
-        # Save COCO annotations
-        coco_annotations_file = coco_annotations_dir / "instances_train.json"
-        with open(coco_annotations_file, 'w') as f:
-            import json
-            json.dump(coco_data, f, indent=2)
+        # Create temporary master annotation file for adapter
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+            json.dump(master_data, tmp_file)
+            tmp_master_path = tmp_file.name
+        
+        try:
+            adapter = COCOAdapter(tmp_master_path)
+            adapter.load_master_annotation()
+            coco_data = adapter.convert('train')
+            
+            # Save COCO annotations
+            coco_annotations_file = coco_annotations_dir / "instances_train.json"
+            adapter.save(coco_data, str(coco_annotations_file))
+        finally:
+            # Clean up temporary file
+            import os
+            if os.path.exists(tmp_master_path):
+                os.unlink(tmp_master_path)
         
         self.logger.info(f"Created COCO format for dataset '{dataset_name}'")
         return str(coco_dir)
@@ -117,12 +130,32 @@ class FrameworkDataManager:
         
         # Generate YOLO annotations using adapter
         master_data = self._load_master_data(dataset_name)
-        adapter = YOLOAdapter()
-        yolo_data = adapter.convert_to_format(master_data)
         
-        # Save YOLO annotations and data.yaml
-        self._save_yolo_annotations(yolo_labels_dir, yolo_data)
-        self._save_yolo_data_yaml(yolo_dir, dataset_name, yolo_data)
+        # Create temporary master annotation file for adapter
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+            import json
+            json.dump(master_data, tmp_file)
+            tmp_master_path = tmp_file.name
+        
+        try:
+            adapter = YOLOAdapter(tmp_master_path)
+            adapter.load_master_annotation()
+            yolo_data = adapter.convert('train')
+            
+            # Save YOLO annotations
+            adapter.save(yolo_data)
+            
+            # Save data.yaml
+            class_names = [cat['name'] for cat in master_data.get('dataset_info', {}).get('classes', [])]
+            split_image_dirs = {
+                'train': 'images/train',
+                'val': 'images/val'
+            }
+            adapter.save_data_yaml(class_names, split_image_dirs, str(yolo_dir / "data.yaml"))
+        finally:
+            # Clean up temporary file
+            if os.path.exists(tmp_master_path):
+                os.unlink(tmp_master_path)
         
         self.logger.info(f"Created YOLO format for dataset '{dataset_name}'")
         return str(yolo_dir)
@@ -130,6 +163,8 @@ class FrameworkDataManager:
     def _create_image_symlinks(self, dataset_name: str, target_dir: Path, framework: str):
         """Create symlinks for images in the target directory."""
         master_images_dir = self.project_root / "data" / "images" / dataset_name
+
+        logger.info(f"Creating symlinks for images in {target_dir} for {framework}")
         
         if not master_images_dir.exists():
             raise FileNotFoundError(f"Master images directory not found: {master_images_dir}")
@@ -140,6 +175,8 @@ class FrameworkDataManager:
             split_dir.mkdir(exist_ok=True)
             
             master_split_dir = master_images_dir / split
+            success = 0
+            failed = 0
             if master_split_dir.exists():
                 # Create symlinks for each image
                 for image_file in master_split_dir.iterdir():
@@ -158,45 +195,8 @@ class FrameworkDataManager:
                             os.symlink(relative_path, symlink_path)
                         except OSError:
                             # Fallback to copying if symlink fails (e.g., on Windows without admin)
-                            shutil.copy2(image_file, symlink_path)
-    
-    def _save_yolo_annotations(self, labels_dir: Path, yolo_data: Dict[str, Any]):
-        """Save YOLO label files."""
-        annotations = yolo_data.get('annotations', {})
-        
-        for split, split_annotations in annotations.items():
-            split_labels_dir = labels_dir / split
-            split_labels_dir.mkdir(exist_ok=True)
-            
-            for image_name, label_data in split_annotations.items():
-                label_file = split_labels_dir / f"{Path(image_name).stem}.txt"
-                
-                with open(label_file, 'w') as f:
-                    for annotation in label_data:
-                        # Format: class_id x_center y_center width height
-                        class_id = annotation.get('class_id', 0)
-                        bbox = annotation.get('bbox', [0, 0, 0, 0])
-                        x_center, y_center, width, height = bbox
-                        
-                        f.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
-    
-    def _save_yolo_data_yaml(self, yolo_dir: Path, dataset_name: str, yolo_data: Dict[str, Any]):
-        """Save YOLO data.yaml file."""
-        data_yaml = {
-            'path': str(yolo_dir.absolute()),
-            'train': 'images/train',
-            'val': 'images/val',
-            'test': 'images/test',
-            'names': yolo_data.get('names', {})
-        }
-        
-        # Remove test if it doesn't exist
-        if not (yolo_dir / "images" / "test").exists():
-            del data_yaml['test']
-        
-        yaml_file = yolo_dir / "data.yaml"
-        with open(yaml_file, 'w') as f:
-            yaml.dump(data_yaml, f, default_flow_style=False)
+                            shutil.copy2(image_file, symlink_path)   
+                         
     
     def _load_master_data(self, dataset_name: str) -> Dict[str, Any]:
         """Load master data for a dataset."""
