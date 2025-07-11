@@ -9,12 +9,6 @@ class COCOAdapter(BaseAdapter):
     Adapter for converting the master annotation format to COCO format.
     """
 
-    def load_master_annotation(self) -> None:
-        """
-        Load the master annotation JSON file into memory.
-        """
-        self.master_data = self._load_json(self.master_annotation_path)
-
     def convert(self, split: str) -> Dict[str, Any]:
         """
         Convert the loaded master annotation to COCO format for the specified split.
@@ -45,11 +39,6 @@ class COCOAdapter(BaseAdapter):
             json.dump(coco_data, f, indent=2, ensure_ascii=False)
 
     # --- Private utility methods ---
-
-    def _load_json(self, path: str) -> Dict[str, Any]:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
     def _filter_images_by_split(self, split: str) -> List[Dict[str, Any]]:
         return [
             img

@@ -16,7 +16,8 @@ class COCOToMasterConverter(BaseConverter):
         """
         Initialize the converter with the path to the COCO annotation file.
         """
-        self.coco_annotation_path = coco_annotation_path
+        super().__init__()
+        self.coco_annotation_path = str(coco_annotation_path)
         self.coco_images_path = None
         self.coco_data: Dict[str, Any] = {}
 
@@ -54,6 +55,9 @@ class COCOToMasterConverter(BaseConverter):
                 self.coco_data = json.load(f)
 
         self.coco_images_path = Path(self.coco_annotation_path).parent / "images"
+        assert (
+            self.coco_images_path.exists()
+        ), f"Images path does not exist: {self.coco_images_path}"
 
     def convert_to_master(
         self,
@@ -98,7 +102,7 @@ class COCOToMasterConverter(BaseConverter):
                 "width": img["width"],
                 "height": img["height"],
                 "split": split,
-                "path": os.path.join(self.coco_images_path, file_name),
+                "path": str(self.coco_images_path / file_name),
             }
             images.append(master_image)
 
@@ -153,5 +157,13 @@ class COCOToMasterConverter(BaseConverter):
             return "val"
         elif "test" in file_name.lower():
             return "test"
+        elif (
+            "val" in self.coco_annotation_path.lower()
+            or "validation" in self.coco_annotation_path.lower()
+        ):
+            return "val"
+        elif "test" in self.coco_annotation_path.lower():
+            return "test"
         else:
+            self.logger.warning("Failed to determine the split. Default to train")
             return "train"  # Default to train

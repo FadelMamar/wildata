@@ -19,6 +19,7 @@ class YOLOToMasterConverter(BaseConverter):
         """
         Initialize the converter with the path to the YOLO data.yaml file.
         """
+        super().__init__()
         self.yolo_data_yaml_path = yolo_data_yaml_path
         self.yolo_data: Dict[str, Any] = {}
         self.base_path = None

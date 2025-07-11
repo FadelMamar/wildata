@@ -14,12 +14,6 @@ class YOLOAdapter(BaseAdapter):
     Adapter for converting the master annotation format to YOLO format.
     """
 
-    def load_master_annotation(self) -> None:
-        """
-        Load the master annotation JSON file into memory.
-        """
-        self.master_data = self._load_json(self.master_annotation_path)
-
     def convert(self, split: str) -> Dict[str, List[str]]:
         """
         Convert the loaded master annotation to YOLO format for the specified split.
@@ -85,11 +79,6 @@ class YOLOAdapter(BaseAdapter):
             f.write(yaml_str)
 
     # --- Private utility methods ---
-
-    def _load_json(self, path: str) -> Dict[str, Any]:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
     def _filter_images_by_split(self, split: str) -> List[Dict[str, Any]]:
         return [
             img

@@ -4,6 +4,7 @@ Centralized path management for the data pipeline.
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -32,8 +33,8 @@ class PathManager:
 
         # Framework formats
         self.framework_formats_dir = self.project_root / "framework_formats"
-        self.coco_formats_dir = self.framework_formats_dir / "coco"
-        self.yolo_formats_dir = self.framework_formats_dir / "yolo"
+        # self.coco_formats_dir = self.framework_formats_dir / "coco"
+        # self.yolo_formats_dir = self.framework_formats_dir / "yolo"
 
         # DVC and configuration
         self.dvc_dir = self.project_root / ".dvc"
@@ -54,9 +55,9 @@ class PathManager:
     def get_framework_format_dir(self, dataset_name: str, framework: str) -> Path:
         """Get the framework format directory for a dataset."""
         if framework.lower() == "coco":
-            return self.coco_formats_dir / dataset_name
+            return self.framework_formats_dir / dataset_name / "coco"
         elif framework.lower() == "yolo":
-            return self.yolo_formats_dir / dataset_name
+            return self.framework_formats_dir / dataset_name / "yolo"
         else:
             raise ValueError(f"Unsupported framework: {framework}")
 
@@ -64,7 +65,7 @@ class PathManager:
         """Get the images directory for a framework format."""
         framework_dir = self.get_framework_format_dir(dataset_name, framework)
         if framework.lower() == "coco":
-            return framework_dir / "data"
+            return framework_dir / "images"
         elif framework.lower() == "yolo":
             return framework_dir / "images"
         else:
@@ -85,9 +86,7 @@ class PathManager:
         # Master directories
         self.get_dataset_master_dir(dataset_name).mkdir(parents=True, exist_ok=True)
         self.get_dataset_images_dir(dataset_name).mkdir(parents=True, exist_ok=True)
-        self.get_dataset_annotations_file(dataset_name).parent.mkdir(
-            parents=True, exist_ok=True
-        )
+        self.get_dataset_master_dir(dataset_name).mkdir(parents=True, exist_ok=True)
 
         # Framework directories
         if frameworks:
@@ -100,13 +99,17 @@ class PathManager:
                 annotations_dir = self.get_framework_annotations_dir(
                     dataset_name, framework
                 )
+                images_dir.mkdir(parents=True, exist_ok=True)
+                annotations_dir.mkdir(parents=True, exist_ok=True)
 
                 # Get existing splits from master data
                 existing_splits = self._get_existing_splits(dataset_name)
 
                 for split in existing_splits:
-                    (images_dir / split).mkdir(parents=True, exist_ok=True)
-                    (annotations_dir / split).mkdir(parents=True, exist_ok=True)
+                    (images_dir / split).mkdir(exist_ok=True)
+
+                    if framework != "coco":  # coco image paths are in the annotations
+                        (annotations_dir / split).mkdir(exist_ok=True)
 
     def get_existing_splits(self, dataset_name: str) -> List[str]:
         """
@@ -196,10 +199,12 @@ class PathManager:
             formats[framework] = self.framework_format_exists(dataset_name, framework)
         return formats
 
-    def get_relative_path(self, from_path: Path, to_path: Path) -> str:
-        """Get a relative path from one location to another."""
+    def get_relative_path(self, path: Path, start: Path) -> str:
+        """Get a relative of path from start."""
         try:
-            return str(to_path.relative_to(from_path))
+            return os.path.relpath(
+                path, start=start
+            )  # str(to_path.relative_to(from_path))
         except ValueError:
             # If paths are on different drives (Windows), use absolute path
-            return str(to_path)
+            return str(path)

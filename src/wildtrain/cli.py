@@ -2,10 +2,15 @@
 Command-line interface for the WildTrain data pipeline using Typer.
 """
 
+import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
+import numpy as np
 import typer
 
 from .config import AugmentationConfig, TilingConfig
@@ -412,14 +417,6 @@ def status():
     except Exception as e:
         typer.echo(f"❌ Error: {e}")
         raise typer.Exit(1)
-
-
-import json
-import os
-import shutil
-import tempfile
-
-import numpy as np
 
 
 @dataset_app.command()

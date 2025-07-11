@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict
@@ -15,6 +16,7 @@ class BaseConverter(ABC):
     def __init__(
         self,
     ):
+        self.logger = logging.getLogger(__name__)
         pass
 
     @abstractmethod

@@ -143,9 +143,9 @@ class MasterDataManager:
                 if not new_path.exists():
                     shutil.copy2(original_file, new_path)
 
-                # Update the file path in master data using relative path
+                # get relative path to root data dir
                 image_info["path"] = self.path_manager.get_relative_path(
-                    self.path_manager.get_dataset_images_dir(dataset_name), new_path
+                    new_path, start=self.path_manager.project_root
                 )
             else:
                 self.logger.warning(f"Image file not found: {original_path}")

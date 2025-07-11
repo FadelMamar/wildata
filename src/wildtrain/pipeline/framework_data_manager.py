@@ -86,41 +86,26 @@ class FrameworkDataManager:
         # Generate COCO annotations using adapter
         master_data = self._load_master_data(dataset_name)
 
-        # Create temporary master annotation file for adapter
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as tmp_file:
-            json.dump(master_data, tmp_file)
-            tmp_master_path = tmp_file.name
+        adapter = COCOAdapter(None, master_data=master_data)
+        existing_splits = self.path_manager.get_existing_splits(dataset_name)
+        for split in existing_splits:
+            try:
+                all_coco_data = {"images": [], "annotations": [], "categories": []}
+                split_data = adapter.convert(split)
+                all_coco_data["images"].extend(split_data.get("images", []))
+                all_coco_data["annotations"].extend(split_data.get("annotations", []))
+                if not all_coco_data["categories"]:
+                    all_coco_data["categories"] = split_data.get("categories", [])
 
-        try:
-            adapter = COCOAdapter(tmp_master_path)
-            adapter.load_master_annotation()
+                # Save COCO annotations
+                coco_annotations_file = (
+                    coco_annotations_dir / f"annotations_{split}.json"
+                )
+                adapter.save(all_coco_data, str(coco_annotations_file))
 
-            # Convert for each existing split using PathManager
-            all_coco_data = {"images": [], "annotations": [], "categories": []}
-            existing_splits = self.path_manager.get_existing_splits(dataset_name)
-
-            for split in existing_splits:
-                try:
-                    split_data = adapter.convert(split)
-                    all_coco_data["images"].extend(split_data.get("images", []))
-                    all_coco_data["annotations"].extend(
-                        split_data.get("annotations", [])
-                    )
-                    if not all_coco_data["categories"]:
-                        all_coco_data["categories"] = split_data.get("categories", [])
-                except Exception as e:
-                    self.logger.warning(f"Could not convert split '{split}': {str(e)}")
-                    continue
-
-            # Save COCO annotations
-            coco_annotations_file = coco_annotations_dir / "annotations.json"
-            adapter.save(all_coco_data, str(coco_annotations_file))
-        finally:
-            # Clean up temporary file
-            if os.path.exists(tmp_master_path):
-                os.unlink(tmp_master_path)
+            except Exception as e:
+                self.logger.warning(f"Could not convert split '{split}': {str(e)}")
+                continue
 
         self.logger.info(f"Created COCO format for dataset '{dataset_name}'")
         return str(coco_dir)
@@ -145,43 +130,28 @@ class FrameworkDataManager:
         # Generate YOLO annotations using adapter
         master_data = self._load_master_data(dataset_name)
 
-        # Create temporary master annotation file for adapter
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as tmp_file:
-            json.dump(master_data, tmp_file)
-            tmp_master_path = tmp_file.name
+        adapter = YOLOAdapter(None, master_data=master_data)
 
-        try:
-            adapter = YOLOAdapter(tmp_master_path)
-            adapter.load_master_annotation()
+        # Convert for each existing split using PathManager
+        all_yolo_data = {"annotations": {}, "names": {}}
+        existing_splits = self.path_manager.get_existing_splits(dataset_name)
 
-            # Convert for each existing split using PathManager
-            all_yolo_data = {"annotations": {}, "names": {}}
-            existing_splits = self.path_manager.get_existing_splits(dataset_name)
+        for split in existing_splits:
+            try:
+                split_data = adapter.convert(split)
+                all_yolo_data["annotations"][split] = split_data
 
-            for split in existing_splits:
-                try:
-                    split_data = adapter.convert(split)
-                    all_yolo_data["annotations"][split] = split_data
+                # Get class names from master data
+                if not all_yolo_data["names"]:
+                    classes = master_data.get("dataset_info", {}).get("classes", [])
+                    all_yolo_data["names"] = {cat["id"]: cat["name"] for cat in classes}
+            except Exception as e:
+                self.logger.warning(f"Could not convert split '{split}': {str(e)}")
+                continue
 
-                    # Get class names from master data
-                    if not all_yolo_data["names"]:
-                        classes = master_data.get("dataset_info", {}).get("classes", [])
-                        all_yolo_data["names"] = {
-                            cat["id"]: cat["name"] for cat in classes
-                        }
-                except Exception as e:
-                    self.logger.warning(f"Could not convert split '{split}': {str(e)}")
-                    continue
-
-            # Save YOLO annotations and data.yaml
-            self._save_yolo_annotations(yolo_labels_dir, all_yolo_data)
-            self._save_yolo_data_yaml(yolo_dir, dataset_name, all_yolo_data)
-        finally:
-            # Clean up temporary file
-            if os.path.exists(tmp_master_path):
-                os.unlink(tmp_master_path)
+        # Save YOLO annotations and data.yaml
+        self._save_yolo_annotations(yolo_labels_dir, all_yolo_data)
+        self._save_yolo_data_yaml(yolo_dir, dataset_name, all_yolo_data)
 
         self.logger.info(f"Created YOLO format for dataset '{dataset_name}'")
         return str(yolo_dir)
@@ -224,9 +194,8 @@ class FrameworkDataManager:
 
                         # Create relative symlink to master image
                         relative_path = self.path_manager.get_relative_path(
-                            split_dir, image_file
+                            image_file, start=split_dir
                         )
-
                         # Remove existing symlink if it exists
                         if symlink_path.exists():
                             symlink_path.unlink()
