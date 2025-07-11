@@ -20,7 +20,7 @@ class BaseTransformer(ABC):
     """
 
     def __init__(
-        self, config: Optional[Union[AugmentationConfig, TilingConfig]] = None
+        self,
     ):
         """
         Initialize the transformer.
@@ -28,7 +28,6 @@ class BaseTransformer(ABC):
         Args:
             config: Configuration dictionary or dataclass for the transformer
         """
-        self.config = config
         self.logger = logging.getLogger(self.__class__.__name__)
 
     @abstractmethod

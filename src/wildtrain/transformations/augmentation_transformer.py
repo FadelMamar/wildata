@@ -34,8 +34,8 @@ class AugmentationTransformer(BaseTransformer):
         Args:
             config: AugmentationConfig dataclass with augmentation parameters
         """
-        config = config or AugmentationConfig()
-        super().__init__(config)
+        super().__init__()
+        self.config = config or AugmentationConfig()
         self._create_albumentations_pipeline()
 
     def _create_albumentations_pipeline(self):

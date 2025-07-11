@@ -2,6 +2,7 @@
 Transformation pipeline for orchestrating multiple data transformations.
 """
 
+import json
 import logging
 import traceback
 from pathlib import Path
@@ -88,6 +89,10 @@ class TransformationPipeline:
         """
         self._validate_inputs(inputs)
         data = [inputs]
+        outputs = None
+
+        if len(self.transformers) == 0:
+            return inputs
 
         for i, transformer in enumerate(self.transformers):
             try:
@@ -96,7 +101,7 @@ class TransformationPipeline:
                 )
 
                 outputs = transformer.transform(data)
-                data = outputs
+                data = outputs  # saving for next transform
 
                 self.logger.debug(
                     f"Transformer {transformer.__class__.__name__} completed successfully"
@@ -156,28 +161,10 @@ class TransformationPipeline:
             "transformer_configs": [t.config for t in self.transformers],
         }
 
-        import json
-
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
 
         self.logger.info(f"Saved pipeline configuration to: {filepath}")
-
-    def load_pipeline_config(self, filepath: str) -> None:
-        """
-        Load pipeline configuration from file.
-
-        Args:
-            filepath: Path to load configuration from
-        """
-        import json
-
-        with open(filepath, "r") as f:
-            config = json.load(f)
-
-        # Note: This is a simplified implementation
-        # In practice, you'd need to reconstruct transformers from config
-        self.logger.info(f"Loaded pipeline configuration from: {filepath}")
 
     def __len__(self) -> int:
         """Return the number of transformers in the pipeline."""
