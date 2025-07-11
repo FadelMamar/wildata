@@ -71,7 +71,7 @@ class DataPipeline:
         source_format: str,
         dataset_name: str,
         apply_transformations: bool = False,
-        track_with_dvc: bool = True,
+        track_with_dvc: bool = False,
     ) -> Dict[str, Any]:
         """
         Import a dataset from source format to COCO format.

@@ -160,9 +160,8 @@ class DataManager:
                 shutil.copy2(original_file, new_path)
 
             # Update the file_name in COCO data to relative to master data_dir
-            image_info["file_name"] = os.path.relpath(
-                new_path, start=self.path_manager.data_dir
-            )
+            relpath = os.path.relpath(new_path, start=self.path_manager.data_dir)
+            image_info["file_name"] = Path(relpath).as_posix()
 
         return split_coco_data
 
