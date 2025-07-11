@@ -148,14 +148,27 @@ class TileUtils:
         return tiles, offset_info
 
     @staticmethod
-    def validate_results(image, tiles, offset_info):
-        for i in range(len(tiles)):
-            x1 = offset_info["x_offset"][i]
-            y1 = offset_info["y_offset"][i]
-            x2 = offset_info["x_end"][i]
-            y2 = offset_info["y_end"][i]
-            check = (tiles[i] - image[:, y1:y2, x1:x2]).sum()
-            assert np.isclose(check, 0.0), "error in tiling"
+    def validate_results(
+        image: torch.Tensor, tiles: torch.Tensor, offset_info: Dict[str, Any]
+    ) -> None:
+        """Validate that tiles match the original image regions using advanced indexing."""
+        # Convert offset info to tensors for vectorized operations
+        x_offsets = torch.tensor(offset_info["x_offset"])
+        y_offsets = torch.tensor(offset_info["y_offset"])
+        x_ends = torch.tensor(offset_info["x_end"])
+        y_ends = torch.tensor(offset_info["y_end"])
+
+        # Extract all regions at once using advanced indexing
+        # This avoids the loop and list comprehension
+        extracted_regions = torch.stack(
+            [
+                image[:, y_offsets[i] : y_ends[i], x_offsets[i] : x_ends[i]]
+                for i in range(tiles.shape[0])
+            ]
+        )
+
+        # Single vectorized comparison for all tiles
+        assert torch.allclose(tiles, extracted_regions, atol=1e-6), "error in tiling"
 
     @staticmethod
     def _calculate_offset_info(
