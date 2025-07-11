@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .base_adapter import BaseAdapter
 
@@ -11,47 +11,60 @@ logger = logging.getLogger(__name__)
 
 class YOLOAdapter(BaseAdapter):
     """
-    Adapter for converting the master annotation format to YOLO format.
+    Adapter for converting COCO annotation format to YOLO format.
     """
 
     def convert(self, split: str) -> Dict[str, List[str]]:
         """
-        Convert the loaded master annotation to YOLO format for the specified split.
+        Convert the loaded COCO annotation to YOLO format for the specified split.
         Args:
             split (str): The data split to convert (e.g., 'train', 'val', 'test').
         Returns:
             Dict[str, List[str]]: Mapping from image file names to lists of YOLO label lines.
         """
-        images = self._filter_images_by_split(split)
+        images = self.coco_data.get("images", [])
         image_id_to_image = {img["id"]: img for img in images}
         image_labels: Dict[str, List[str]] = {img["file_name"]: [] for img in images}
-        annotations = self._filter_annotations_by_image_ids(
-            set(image_id_to_image.keys())
-        )
+        annotations = self.coco_data.get("annotations", [])
+
         for ann in annotations:
-            img = image_id_to_image[ann["image_id"]]
-            width, height = img["width"], img["height"]
-            yolo_line = self._annotation_to_yolo_line(ann, width, height)
-            if yolo_line:
-                image_labels[img["file_name"]].append(yolo_line)
+            if ann["image_id"] in image_id_to_image:
+                img = image_id_to_image[ann["image_id"]]
+                width, height = img["width"], img["height"]
+                yolo_line = self._annotation_to_yolo_line(ann, width, height)
+                if yolo_line:
+                    image_labels[img["file_name"]].append(yolo_line)
         return image_labels
 
     def save(
         self,
         yolo_data: Dict[str, List[str]],
+        output_path: Optional[str] = None,
     ) -> None:
         """
         Save the YOLO-formatted annotation files to the output directory.
         Args:
             yolo_data (Dict[str, List[str]]): Mapping from image file names to YOLO label lines.
-            output_dir (str): Directory to save the YOLO label files.
+            output_path (Optional[str]): Directory to save the YOLO label files.
         """
-        labels_dir = Path(list(yolo_data.keys())[0]).parent
-        labels_dir = str(labels_dir).replace("images", "labels")
-        Path(labels_dir).mkdir(exist_ok=True, parents=True)
+        if not yolo_data:
+            logger.warning("No YOLO data to save")
+            return
+
+        # Determine output directory
+        if output_path:
+            labels_dir = Path(output_path)
+        else:
+            # Use the first image file path to determine labels directory
+            first_image = list(yolo_data.keys())[0]
+            labels_dir = Path(first_image).parent
+            labels_dir = Path(str(labels_dir).replace("images", "labels"))
+
+        labels_dir.mkdir(exist_ok=True, parents=True)
+
         for image_file, label_lines in yolo_data.items():
             label_file = Path(image_file).with_suffix(".txt").name
-            label_path = Path(labels_dir) / label_file
+            label_path = labels_dir / label_file
             with open(label_path, "w", encoding="utf-8") as f:
                 for line in label_lines:
                     f.write(line + "\n")
@@ -79,20 +92,6 @@ class YOLOAdapter(BaseAdapter):
             f.write(yaml_str)
 
     # --- Private utility methods ---
-    def _filter_images_by_split(self, split: str) -> List[Dict[str, Any]]:
-        return [
-            img
-            for img in self.master_data.get("images", [])
-            if img.get("split") == split
-        ]
-
-    def _filter_annotations_by_image_ids(self, image_ids: set) -> List[Dict[str, Any]]:
-        return [
-            ann
-            for ann in self.master_data.get("annotations", [])
-            if ann.get("image_id") in image_ids
-        ]
-
     def _annotation_to_yolo_line(
         self, ann: Dict[str, Any], width: int, height: int
     ) -> str:

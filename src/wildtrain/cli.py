@@ -14,6 +14,7 @@ import numpy as np
 import typer
 
 from .config import AugmentationConfig, TilingConfig
+from .logging_config import setup_logging
 from .pipeline.data_pipeline import DataPipeline
 from .pipeline.dvc_manager import DVCConfig, DVCManager, DVCStorageType
 from .transformations import (
@@ -56,8 +57,19 @@ def main(
     data_dir: Optional[Path] = typer.Option(
         None, "--data-dir", help="Directory to store master data (default: ./data)"
     ),
+    log_level: str = typer.Option(
+        "INFO", "--log-level", help="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose logging (DEBUG level)"
+    ),
 ):
     """WildTrain Data Pipeline CLI."""
+    # Setup logging
+    if verbose:
+        log_level = "DEBUG"
+    setup_logging(level=log_level)
+
     if data_dir:
         state.data_dir = data_dir
     else:

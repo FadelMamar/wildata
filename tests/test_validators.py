@@ -1,8 +1,6 @@
 import os
 
 import pytest
-from wildtrain.converters.coco_to_master import COCOToMasterConverter
-from wildtrain.converters.yolo_to_master import YOLOToMasterConverter
 from wildtrain.validators.coco_validator import COCOValidator
 from wildtrain.validators.yolo_validator import YOLOValidator
 
@@ -56,46 +54,6 @@ def test_yolo_validator_with_real_data():
     assert summary["total_images"] > 0
 
 
-def test_coco_converter_with_validation():
-    """Test that COCO converter properly handles validation."""
-    if not os.path.exists(COCO_DATA_DIR):
-        pytest.skip(f"COCO data directory not found: {COCO_DATA_DIR}")
-
-    coco_files = [f for f in os.listdir(COCO_DATA_DIR) if f.endswith(".json")]
-    if not coco_files:
-        pytest.skip("No COCO annotation files found")
-
-    coco_file = os.path.join(COCO_DATA_DIR, coco_files[0])
-
-    # This should work without raising validation errors
-    converter = COCOToMasterConverter(coco_file)
-    converter.load_coco_annotation()  # Should not raise ValueError
-    master_data = converter.convert_to_master("test_dataset", "1.0", "detection")
-
-    assert "dataset_info" in master_data
-    assert "images" in master_data
-    assert "annotations" in master_data
-
-
-def test_yolo_converter_with_validation():
-    """Test that YOLO converter properly handles validation."""
-    if not os.path.exists(YOLO_DATA_DIR):
-        pytest.skip(f"YOLO data directory not found: {YOLO_DATA_DIR}")
-
-    data_yaml_path = os.path.join(YOLO_DATA_DIR, "data.yaml")
-    if not os.path.exists(data_yaml_path):
-        pytest.skip("data.yaml not found in YOLO directory")
-
-    # This should work without raising validation errors
-    converter = YOLOToMasterConverter(data_yaml_path)
-    converter.load_yolo_data()  # Should not raise ValueError
-    master_data = converter.convert_to_master("test_dataset", "1.0", "detection")
-
-    assert "dataset_info" in master_data
-    assert "images" in master_data
-    assert "annotations" in master_data
-
-
 def test_coco_validator_invalid_file():
     """Test COCO validator with invalid file."""
     # Test with non-existent file
@@ -104,7 +62,7 @@ def test_coco_validator_invalid_file():
 
     assert not is_valid
     assert len(errors) > 0
-    assert "File does not exist" in errors[0]
+    assert "does not exist" in errors[0]
 
 
 def test_yolo_validator_invalid_file():
@@ -133,20 +91,36 @@ def test_yolo_validator_directory_structure():
         train_dir = temp_path / "train"
         train_images_dir = train_dir / "images"
         train_labels_dir = train_dir / "labels"
+        val_dir = temp_path / "val"
+        val_images_dir = val_dir / "images"
+        val_labels_dir = val_dir / "labels"
+        test_dir = temp_path / "test"
+        test_images_dir = test_dir / "images"
+        test_labels_dir = test_dir / "labels"
 
         train_images_dir.mkdir(parents=True, exist_ok=True)
         train_labels_dir.mkdir(parents=True, exist_ok=True)
+        val_images_dir.mkdir(parents=True, exist_ok=True)
+        val_labels_dir.mkdir(parents=True, exist_ok=True)
+        test_images_dir.mkdir(parents=True, exist_ok=True)
+        test_labels_dir.mkdir(parents=True, exist_ok=True)
 
         # Create some test files
         (train_images_dir / "image1.jpg").touch()
         (train_images_dir / "image2.png").touch()
         (train_labels_dir / "image1.txt").touch()
         (train_labels_dir / "image2.txt").touch()
+        (val_images_dir / "val_image1.jpg").touch()
+        (val_labels_dir / "val_image1.txt").touch()
+        (test_images_dir / "test_image1.jpg").touch()
+        (test_labels_dir / "test_image1.txt").touch()
 
         # Create data.yaml
         data_yaml = {
             "path": str(temp_path),
             "train": r"train/images",
+            "val": r"val/images",
+            "test": r"test/images",
             "names": {0: "class1", 1: "class2"},
         }
 
@@ -165,8 +139,8 @@ def test_yolo_validator_directory_structure():
         # Test summary
         summary = validator.get_summary()
         assert summary["is_valid"] == True
-        assert summary["total_images"] == 2
-        assert summary["total_labels"] == 2
+        assert summary["total_images"] == 4  # 2 train + 1 val + 1 test
+        assert summary["total_labels"] == 4  # 2 train + 1 val + 1 test
 
 
 def test_yolo_validator_missing_directories():

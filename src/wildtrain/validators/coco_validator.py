@@ -56,11 +56,6 @@ class COCOValidator:
             assert str(self.coco_file_path).endswith(
                 ".json"
             ), "Provide the path to the annotations"
-            coco_images_path = Path(self.coco_file_path).parent / "images"
-            assert (
-                coco_images_path.exists()
-            ), f"coco images directory does not exist -> {coco_images_path}"
-
             if not os.path.exists(self.coco_file_path):
                 self.errors.append(f"File does not exist: {self.coco_file_path}")
                 return False

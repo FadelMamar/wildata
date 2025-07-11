@@ -2,7 +2,6 @@ import json
 import os
 
 import pytest
-from wildtrain.converters.coco_to_master import COCOToMasterConverter
 from wildtrain.converters.yolo_to_master import YOLOToMasterConverter
 
 COCO_DATA_DIR = os.getenv(
@@ -13,31 +12,7 @@ YOLO_DATA_DIR = os.getenv(
 )
 
 
-def test_coco_to_master_conversion(tmp_path):
-    if not os.path.exists(COCO_DATA_DIR):
-        pytest.skip(f"COCO data directory not found: {COCO_DATA_DIR}")
-    coco_files = [f for f in os.listdir(COCO_DATA_DIR) if f.endswith(".json")]
-    if not coco_files:
-        pytest.skip("No COCO annotation files found")
-    coco_file = os.path.join(COCO_DATA_DIR, coco_files[0])
-    converter = COCOToMasterConverter(coco_file)
-    converter.load_coco_annotation()
-    master_data = converter.convert_to_master(
-        "test_dataset", "1.0", "detection", validate_output=True
-    )
-    master_file = tmp_path / "master.json"
-    converter.save_master_annotation(master_data, str(master_file))
-    assert os.path.exists(master_file)
-    with open(master_file, "r", encoding="utf-8") as f:
-        loaded = json.load(f)
-    assert "dataset_info" in loaded
-    assert "images" in loaded
-    assert "annotations" in loaded
-    assert len(loaded["images"]) > 0
-    assert len(loaded["annotations"]) > 0
-
-
-def test_yolo_to_master_conversion(tmp_path):
+def test_yolo_to_coco_conversion(tmp_path):
     if not os.path.exists(YOLO_DATA_DIR):
         pytest.skip(f"YOLO data directory not found: {YOLO_DATA_DIR}")
     data_yaml_path = os.path.join(YOLO_DATA_DIR, "data.yaml")
@@ -45,34 +20,31 @@ def test_yolo_to_master_conversion(tmp_path):
         pytest.skip("data.yaml not found in YOLO directory")
     converter = YOLOToMasterConverter(data_yaml_path)
     converter.load_yolo_data()
-    master_data = converter.convert_to_master(
-        "test_dataset", "1.0", "detection", validate_output=True
-    )
-    master_file = tmp_path / "master.json"
-    converter.save_master_annotation(master_data, str(master_file))
-    assert os.path.exists(master_file)
-    with open(master_file, "r", encoding="utf-8") as f:
-        loaded = json.load(f)
-    assert "dataset_info" in loaded
-    assert "images" in loaded
-    assert "annotations" in loaded
-    assert len(loaded["images"]) > 0
+    dataset_info, split_data = converter.convert_to_coco_format("test_dataset")
+
+    # Verify structure
+    assert "name" in dataset_info
+    assert "version" in dataset_info
+    assert len(split_data) > 0
+
+    # Check that we have COCO format data for each split
+    for split_name, coco_data in split_data.items():
+        assert "images" in coco_data
+        assert "annotations" in coco_data
+        assert "categories" in coco_data
+        assert len(coco_data["images"]) > 0
 
 
 def test_converter_validation_disabled():
     """Test that converters work when validation is disabled."""
-    if not os.path.exists(COCO_DATA_DIR):
-        pytest.skip(f"COCO data directory not found: {COCO_DATA_DIR}")
-    coco_files = [f for f in os.listdir(COCO_DATA_DIR) if f.endswith(".json")]
-    if not coco_files:
-        pytest.skip("No COCO annotation files found")
-    coco_file = os.path.join(COCO_DATA_DIR, coco_files[0])
-    converter = COCOToMasterConverter(coco_file)
-    converter.load_coco_annotation()
+    if not os.path.exists(YOLO_DATA_DIR):
+        pytest.skip(f"YOLO data directory not found: {YOLO_DATA_DIR}")
+    data_yaml_path = os.path.join(YOLO_DATA_DIR, "data.yaml")
+    if not os.path.exists(data_yaml_path):
+        pytest.skip("data.yaml not found in YOLO directory")
+    converter = YOLOToMasterConverter(data_yaml_path)
+    converter.load_yolo_data()
     # This should work without validation
-    master_data = converter.convert_to_master(
-        "test_dataset", "1.0", "detection", validate_output=False
-    )
-    assert "dataset_info" in master_data
-    assert "images" in master_data
-    assert "annotations" in master_data
+    dataset_info, split_data = converter.convert_to_coco_format("test_dataset")
+    assert "name" in dataset_info
+    assert len(split_data) > 0

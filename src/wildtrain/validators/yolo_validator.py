@@ -113,20 +113,47 @@ class YOLOValidator:
         return os.path.join(self.base_path, p)
 
     def _validate_data_yaml_structure(self):
-        """Validate the structure of data.yaml."""
-        required_fields = ["names", "path", "train"]
-
+        """Validate the structure of data.yaml file."""
+        required_fields = ["train", "val", "test", "names"]
         for field in required_fields:
             if field not in self.yolo_data:
-                self.errors.append(f"data.yaml missing required field: {field}")
-            elif field == "names" and not isinstance(self.yolo_data[field], dict):
-                self.errors.append("data.yaml 'names' field must be a dictionary")
-            elif field == "path" and not isinstance(self.yolo_data[field], str):
-                self.errors.append("data.yaml 'path' field must be a string")
-            elif field == "train" and not isinstance(self.yolo_data[field], str):
-                self.errors.append(
-                    "data.yaml 'train' field must be a string (lists are not supported)"
-                )
+                self.errors.append(f"Missing required field: {field}")
+
+        # Validate class names
+        if "names" in self.yolo_data:
+            names = self.yolo_data["names"]
+            if not names:
+                self.errors.append("data.yaml 'names' cannot be empty")
+            else:
+                # Handle both list and dictionary formats
+                if isinstance(names, list):
+                    # List format: names are in order, class_id is the index
+                    for class_id, name in enumerate(names):
+                        if not isinstance(name, str):
+                            self.errors.append(
+                                f"Class name for ID {class_id} must be a string"
+                            )
+                        elif not name.strip():
+                            self.errors.append(
+                                f"Class name for ID {class_id} cannot be empty"
+                            )
+                elif isinstance(names, dict):
+                    # Dictionary format: {class_id: name}
+                    for class_id, name in names.items():
+                        if not isinstance(name, str):
+                            self.errors.append(
+                                f"Class name for ID {class_id} must be a string"
+                            )
+                        elif not name.strip():
+                            self.errors.append(
+                                f"Class name for ID {class_id} cannot be empty"
+                            )
+                        if not isinstance(class_id, int):
+                            self.errors.append(
+                                f"Class ID {class_id} must be an integer"
+                            )
+                else:
+                    self.errors.append("data.yaml 'names' must be a list or dictionary")
 
         # Validate split directories
         splits = ["train", "val", "test"]
@@ -147,24 +174,6 @@ class YOLOValidator:
                 resolved = self._resolve_path(split_paths)
                 if split_paths and not os.path.exists(resolved):
                     self.warnings.append(f"Split directory does not exist: {resolved}")
-
-        # Validate class names
-        if "names" in self.yolo_data:
-            names = self.yolo_data["names"]
-            if not names:
-                self.errors.append("data.yaml 'names' dictionary cannot be empty")
-            else:
-                for class_id, name in names.items():
-                    if not isinstance(name, str):
-                        self.errors.append(
-                            f"Class name for ID {class_id} must be a string"
-                        )
-                    elif not name.strip():
-                        self.errors.append(
-                            f"Class name for ID {class_id} cannot be empty"
-                        )
-                    if not isinstance(class_id, int):
-                        self.errors.append(f"Class ID {class_id} must be an integer")
 
     def _validate_directories(self):
         """Validate image and label directories."""
@@ -292,7 +301,13 @@ class YOLOValidator:
         """Validate label files in a specific directory."""
         # Get class names for validation
         class_names = self.yolo_data.get("names", {})
-        num_classes = len(class_names)
+        # Handle both list and dictionary formats for names
+        if isinstance(class_names, list):
+            num_classes = len(class_names)
+        elif isinstance(class_names, dict):
+            num_classes = len(class_names)
+        else:
+            num_classes = 0
 
         # Check each label file
         labels_dir = str(split_path).replace("images", "labels")

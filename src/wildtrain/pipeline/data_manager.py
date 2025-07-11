@@ -1,5 +1,5 @@
 """
-Master data manager for storing and managing data in the master format with DVC integration.
+Data manager for storing and managing datasets in COCO format.
 """
 
 import json
@@ -9,28 +9,20 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..adapters.coco_adapter import COCOAdapter
-from ..adapters.yolo_adapter import YOLOAdapter
+from ..logging_config import get_logger
 from .dvc_manager import DVCConfig, DVCManager, DVCStorageType
 from .path_manager import PathManager
 
 
-class MasterDataManager:
+class DataManager:
     """
-    Manages master data storage and operations with DVC integration.
+    Manages dataset storage in COCO format with split-based organization.
 
-    Master data structure:
-    data/
-    ├── images/                    # Master storage (real files)
-    │   ├── train/
-    │   │   ├── image001.jpg
-    │   │   └── image002.jpg
-    │   └── val/
-    │       ├── image003.jpg
-    │       └── image004.jpg
-    └── annotations/
-        └── master/
-            └── annotations.json
+    This class is responsible for:
+    - Storing datasets in COCO format with split-based organization
+    - Managing DVC integration for version control
+    - Providing dataset information and statistics
+    - Supporting dataset operations (list, delete, pull)
     """
 
     def __init__(
@@ -40,7 +32,7 @@ class MasterDataManager:
         dvc_config: Optional[DVCConfig] = None,
     ):
         """
-        Initialize the master data manager.
+        Initialize the data manager.
 
         Args:
             path_manager: PathManager instance for consistent path resolution
@@ -48,10 +40,10 @@ class MasterDataManager:
             dvc_config: DVC configuration (optional)
         """
         self.path_manager = path_manager
-        self.master_data_dir = path_manager.master_data_dir
+        self.data_dir = path_manager.data_dir
 
         # Setup logging
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
         # Initialize DVC integration
         self.dvc_manager = None
@@ -69,38 +61,53 @@ class MasterDataManager:
     def store_dataset(
         self,
         dataset_name: str,
-        master_data: Dict[str, Any],
+        dataset_info: Dict[str, Any],
+        split_data: Dict[str, Dict[str, Any]],
         track_with_dvc: bool = False,
     ) -> str:
         """
-        Store a dataset in master format with optional DVC tracking.
+        Store a dataset in COCO format with split-based organization.
 
         Args:
             dataset_name: Name of the dataset
-            master_data: Master format data dictionary
+            dataset_info: Common dataset metadata (classes, version, etc.)
+            split_data: Dictionary mapping split names to COCO format data
             track_with_dvc: Whether to track the dataset with DVC
 
         Returns:
-            Path to the stored master annotations file
+            Path to the stored dataset info file
         """
 
-        self.path_manager.ensure_directories(dataset_name=dataset_name)
+        self.path_manager.ensure_directories(dataset_name)
 
-        # Copy images to master storage
-        self._copy_images_to_master(dataset_name, master_data)
+        # Store dataset info
+        dataset_info_file = self.path_manager.get_dataset_info_file(dataset_name)
+        with open(dataset_info_file, "w") as f:
+            json.dump(dataset_info, f, indent=2)
 
-        # Store master annotations using PathManager
-        annotations_file = self.path_manager.get_dataset_annotations_file(dataset_name)
+        # Store each split
+        for split_name, split_coco_data in split_data.items():
+            # Store split annotations
+            split_annotations_file = (
+                self.path_manager.get_dataset_split_annotations_file(
+                    dataset_name, split_name
+                )
+            )
 
-        with open(annotations_file, "w") as f:
-            json.dump(master_data, f, indent=2)
+            # Copy images for this split
+            split_coco_data = self._copy_images_for_split(
+                dataset_name, split_name, split_coco_data
+            )
 
-        self.logger.info(f"Stored dataset '{dataset_name}' in master format")
+            with open(split_annotations_file, "w") as f:
+                json.dump(split_coco_data, f, indent=2)
+
+        self.logger.info(f"Stored dataset '{dataset_name}' in COCO format")
 
         # Track with DVC if enabled
         if track_with_dvc and self.dvc_manager:
             try:
-                dataset_path = self.path_manager.get_dataset_master_dir(dataset_name)
+                dataset_path = self.path_manager.get_dataset_dir(dataset_name)
                 if self.dvc_manager.add_data_to_dvc(dataset_path, dataset_name):
                     self.logger.info(f"Dataset '{dataset_name}' tracked with DVC")
                 else:
@@ -110,45 +117,54 @@ class MasterDataManager:
             except Exception as e:
                 self.logger.error(f"Error tracking dataset with DVC: {e}")
 
-        return str(annotations_file)
+        return str(dataset_info_file)
 
-    def _copy_images_to_master(self, dataset_name: str, master_data: Dict[str, Any]):
-        """Copy images to master storage and update paths."""
-        images = master_data.get("images", [])
+    def _copy_images_for_split(
+        self, dataset_name: str, split_name: str, split_coco_data: Dict[str, Any]
+    ):
+        """Copy images for a specific split to the dataset directory."""
+        images = split_coco_data.get("images", [])
+
+        # Create split images directory
+        split_images_dir = self.path_manager.get_dataset_split_images_dir(
+            dataset_name, split_name
+        )
+        split_images_dir.mkdir(parents=True, exist_ok=True)
 
         for image_info in images:
             # Extract original image path
-            original_path = image_info.get("path", "")
+            original_path = image_info.get("file_name", "")
             if not original_path:
-                raise ValueError(f"Image path is not set for image {image_info}")
-
-            # Determine split (train/val/test)
-            split = image_info.get("split")
-            if not split:
-                raise ValueError(f"Split is not set for image {image_info}")
-
-            # Use PathManager to get split directory
-            split_dir = self.path_manager.get_master_split_images_dir(
-                dataset_name, split
-            )
-            split_dir.mkdir(parents=False, exist_ok=True)
-
-            # Copy image to master storage
-            original_file = Path(original_path)
-            if original_file.exists():
-                filename = original_file.name
-                new_path = split_dir / filename
-
-                # Copy file if it doesn't exist or is different
-                if not new_path.exists():
-                    shutil.copy2(original_file, new_path)
-
-                # get relative path to root data dir
-                image_info["path"] = self.path_manager.get_relative_path(
-                    new_path, start=self.path_manager.project_root
+                self.logger.warning(
+                    f"Image file_name is not set for image {image_info}"
                 )
-            else:
-                self.logger.warning(f"Image file not found: {original_path}")
+                continue
+
+            # Try to find the image file
+            original_file = Path(original_path)
+            if not original_file.exists():
+                # Try relative to the annotation file directory
+                annotation_dir = self.path_manager.get_dataset_annotations_dir(
+                    dataset_name
+                )
+                original_file = annotation_dir.parent / original_path
+                if not original_file.exists():
+                    self.logger.warning(f"Image file not found: {original_path}")
+                    continue
+
+            # Copy image to split directory
+            filename = original_file.name
+            new_path = split_images_dir / filename
+
+            if not new_path.exists():
+                shutil.copy2(original_file, new_path)
+
+            # Update the file_name in COCO data to relative to master data_dir
+            image_info["file_name"] = os.path.relpath(
+                new_path, start=self.path_manager.data_dir
+            )
+
+        return split_coco_data
 
     def get_dataset_info(self, dataset_name: str) -> Dict[str, Any]:
         """
@@ -160,29 +176,30 @@ class MasterDataManager:
         Returns:
             Dictionary with dataset information
         """
-        annotations_file = self.path_manager.get_dataset_annotations_file(dataset_name)
+        dataset_info_file = self.path_manager.get_dataset_info_file(dataset_name)
 
-        if not annotations_file.exists():
+        if not dataset_info_file.exists():
             raise FileNotFoundError(f"Dataset '{dataset_name}' not found")
 
-        with open(annotations_file, "r") as f:
-            master_data = json.load(f)
+        with open(dataset_info_file, "r") as f:
+            dataset_info = json.load(f)
 
-        # Count images by split
+        # Get split information
+        existing_splits = self.path_manager.get_existing_splits(dataset_name)
         images_by_split = {}
-        for image in master_data.get("images", []):
-            split = image.get("split", "train")
-            if split not in images_by_split:
-                images_by_split[split] = 0
-            images_by_split[split] += 1
+        annotations_by_split = {}
 
-        # Count annotations by type
-        annotations_by_type = {}
-        for annotation in master_data.get("annotations", []):
-            annotation_type = annotation.get("type", "unknown")
-            if annotation_type not in annotations_by_type:
-                annotations_by_type[annotation_type] = 0
-            annotations_by_type[annotation_type] += 1
+        for split in existing_splits:
+            split_annotations_file = (
+                self.path_manager.get_dataset_split_annotations_file(
+                    dataset_name, split
+                )
+            )
+            if split_annotations_file.exists():
+                with open(split_annotations_file, "r") as f:
+                    split_data = json.load(f)
+                    images_by_split[split] = len(split_data.get("images", []))
+                    annotations_by_split[split] = len(split_data.get("annotations", []))
 
         # Get DVC information if available
         dvc_info = {}
@@ -203,16 +220,18 @@ class MasterDataManager:
 
         return {
             "dataset_name": dataset_name,
-            "total_images": len(master_data.get("images", [])),
-            "total_annotations": len(master_data.get("annotations", [])),
+            "dataset_info": dataset_info,
+            "splits": existing_splits,
             "images_by_split": images_by_split,
-            "annotations_by_type": annotations_by_type,
+            "annotations_by_split": annotations_by_split,
+            "total_images": sum(images_by_split.values()),
+            "total_annotations": sum(annotations_by_split.values()),
             "dvc_info": dvc_info,
         }
 
     def list_datasets(self) -> List[Dict[str, Any]]:
         """
-        List all available datasets in master storage.
+        List all available datasets in data storage.
 
         Returns:
             List of dataset information dictionaries
@@ -229,27 +248,43 @@ class MasterDataManager:
 
         return datasets
 
-    def load_master_data(self, dataset_name: str) -> Dict[str, Any]:
+    def load_dataset_data(self, dataset_name: str) -> Dict[str, Any]:
         """
-        Load master data for a dataset.
+        Load all data for a dataset.
 
         Args:
             dataset_name: Name of the dataset
 
         Returns:
-            Master data dictionary
+            Dictionary with dataset info and split data
         """
-        annotations_file = self.path_manager.get_dataset_annotations_file(dataset_name)
+        dataset_info_file = self.path_manager.get_dataset_info_file(dataset_name)
 
-        if not annotations_file.exists():
+        if not dataset_info_file.exists():
             raise FileNotFoundError(f"Dataset '{dataset_name}' not found")
 
-        with open(annotations_file, "r") as f:
-            return json.load(f)
+        with open(dataset_info_file, "r") as f:
+            dataset_info = json.load(f)
+
+        # Load all split data
+        split_data = {}
+        existing_splits = self.path_manager.get_existing_splits(dataset_name)
+
+        for split in existing_splits:
+            split_annotations_file = (
+                self.path_manager.get_dataset_split_annotations_file(
+                    dataset_name, split
+                )
+            )
+            if split_annotations_file.exists():
+                with open(split_annotations_file, "r") as f:
+                    split_data[split] = json.load(f)
+
+        return {"dataset_info": dataset_info, "split_data": split_data}
 
     def delete_dataset(self, dataset_name: str, remove_from_dvc: bool = True) -> bool:
         """
-        Delete a dataset from master storage.
+        Delete a dataset from data storage.
 
         Args:
             dataset_name: Name of the dataset to delete
@@ -259,7 +294,7 @@ class MasterDataManager:
             True if deletion successful, False otherwise
         """
         try:
-            dataset_dir = self.path_manager.get_dataset_master_dir(dataset_name)
+            dataset_dir = self.path_manager.get_dataset_dir(dataset_name)
             if not dataset_dir.exists():
                 self.logger.warning(f"Dataset '{dataset_name}' not found")
                 return False
@@ -316,7 +351,7 @@ class MasterDataManager:
 
         Args:
             storage_type: Type of storage (local, s3, gcs, etc.)
-            storage_path: Path to storage location
+            storage_path: Path to remote storage
             force: Whether to force setup even if already configured
 
         Returns:
@@ -327,14 +362,9 @@ class MasterDataManager:
             return False
 
         try:
-            # Note: This method signature may need to be adjusted based on DVCManager implementation
-            if hasattr(self.dvc_manager, "setup_remote_storage"):
-                return self.dvc_manager.setup_remote_storage(
-                    storage_type, storage_path, force
-                )
-            else:
-                self.logger.warning("DVC setup_remote_storage method not available")
-                return False
+            return self.dvc_manager.setup_remote_storage(
+                storage_type, storage_path, force
+            )
         except Exception as e:
             self.logger.error(f"Error setting up remote storage: {e}")
             return False
@@ -344,22 +374,17 @@ class MasterDataManager:
         Get DVC status information.
 
         Returns:
-            Dictionary with DVC status
+            Dictionary with DVC status information
         """
         if not self.dvc_manager:
             return {"dvc_enabled": False}
 
         try:
-            status_info = {
+            return {
                 "dvc_enabled": True,
                 "status": self.dvc_manager.get_status(),
+                "config": self.dvc_manager.get_config(),
             }
-
-            # Add config if available
-            if hasattr(self.dvc_manager, "get_config"):
-                status_info["config"] = self.dvc_manager.get_config()
-
-            return status_info
         except Exception as e:
             return {
                 "dvc_enabled": True,
@@ -397,7 +422,7 @@ class MasterDataManager:
             pipeline_name: Name of the pipeline to run
 
         Returns:
-            True if execution successful, False otherwise
+            True if pipeline execution successful, False otherwise
         """
         if not self.dvc_manager:
             self.logger.error("DVC not enabled")

@@ -1,46 +1,34 @@
 """
-Data pipeline for managing deep learning datasets with transformations.
+Data pipeline for importing, transforming, and exporting datasets.
 """
 
 import json
-import logging
-import os
-import shutil
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import cv2
-import yaml
 
-from ..adapters.coco_adapter import COCOAdapter
-from ..adapters.yolo_adapter import YOLOAdapter
-from ..converters.coco_to_master import COCOToMasterConverter
 from ..converters.yolo_to_master import YOLOToMasterConverter
-from ..transformations import TransformationPipeline
+from ..logging_config import get_logger
+from ..transformations.transformation_pipeline import TransformationPipeline
 from ..validators.coco_validator import COCOValidator
 from ..validators.yolo_validator import YOLOValidator
+from .data_manager import DataManager
 from .framework_data_manager import FrameworkDataManager
-from .master_data_manager import MasterDataManager
 from .path_manager import PathManager
 
 
 class DataPipeline:
     """
-    Main data pipeline for managing deep learning datasets.
+    High-level data pipeline for managing dataset operations.
 
-    This pipeline integrates:
-    - Data validation
-    - Format conversion
-    - Data transformations (augmentation, tiling)
-    - Framework-specific format generation
-    - DVC data versioning
-
-    Responsibilities:
-    - High-level orchestration of dataset operations
-    - Integration with MasterDataManager and FrameworkDataManager
-    - Transformation pipeline management
-    - Dataset import/export workflow coordination
+    This class orchestrates the complete data workflow:
+    - Import datasets from various formats (COCO, YOLO)
+    - Apply transformations and augmentations
+    - Store data in COCO format with split-based organization
+    - Export to framework-specific formats
+    - Manage DVC integration for version control
     """
 
     def __init__(
@@ -53,11 +41,12 @@ class DataPipeline:
         Initialize the data pipeline.
 
         Args:
-            root_data_directory: Root directory of the project
+            root: Root directory for data storage
             transformation_pipeline: Optional transformation pipeline
             enable_dvc: Whether to enable DVC integration
         """
         self.root = Path(root)
+        self.logger = get_logger(self.__class__.__name__)
 
         # Initialize path manager for consistent path resolution
         self.path_manager = PathManager(self.root)
@@ -66,12 +55,9 @@ class DataPipeline:
         self.transformation_pipeline = (
             transformation_pipeline or TransformationPipeline()
         )
-        self.logger = logging.getLogger(self.__class__.__name__)
 
-        # Initialize master data manager with DVC support
-        self.master_data_manager = MasterDataManager(
-            self.path_manager, enable_dvc=enable_dvc
-        )
+        # Initialize data manager with DVC support
+        self.data_manager = DataManager(self.path_manager, enable_dvc=enable_dvc)
 
         # Initialize framework data manager
         self.framework_data_manager = FrameworkDataManager(self.path_manager)
@@ -88,12 +74,12 @@ class DataPipeline:
         track_with_dvc: bool = True,
     ) -> Dict[str, Any]:
         """
-        Import a dataset from source format to master format.
+        Import a dataset from source format to COCO format.
 
         Args:
             source_path: Path to source dataset
             source_format: Format of source dataset ('coco' or 'yolo')
-            dataset_name: Name for the dataset in master format
+            dataset_name: Name for the dataset in COCO format
             apply_transformations: Whether to apply transformations during import
             track_with_dvc: Whether to track the dataset with DVC
 
@@ -132,10 +118,11 @@ class DataPipeline:
                         "hints": warnings,
                     }
 
-                # Create converter and convert
-                converter = COCOToMasterConverter(source_path)
-                converter.load_coco_annotation()
-                master_data = converter.convert_to_master(dataset_name)
+                # For COCO, we can store directly in COCO format
+                # Load COCO data and convert to split-based structure
+                dataset_info, split_data = self._load_coco_to_split_format(
+                    source_path, dataset_name
+                )
 
             elif source_format == "yolo":
                 # For YOLO, source_path should be the data.yaml file path
@@ -150,30 +137,23 @@ class DataPipeline:
                         "hints": warnings,
                     }
 
-                # Create converter and convert
+                # Create converter and convert YOLO to COCO format
                 converter = YOLOToMasterConverter(source_path)
                 converter.load_yolo_data()
-                master_data = converter.convert_to_master(dataset_name)
+                dataset_info, split_data = converter.convert_to_coco_format(
+                    dataset_name
+                )
 
             # Apply transformations if requested
             if apply_transformations and self.transformation_pipeline:
                 print("[DEBUG] Applying transformations")
-                master_data = self._apply_transformations_to_dataset(master_data)
+                split_data = self._apply_transformations_to_dataset(split_data)
 
-            # Store dataset using master data manager
-            print("[DEBUG] Storing dataset with master data manager")
-            try:
-                master_annotations_path = self.master_data_manager.store_dataset(
-                    dataset_name, master_data, track_with_dvc=track_with_dvc
-                )
-            except Exception as e:
-                self.logger.error(f"Error storing dataset: {traceback.format_exc()}")
-                return {
-                    "success": False,
-                    "error": str(e),
-                    "validation_errors": [],
-                    "hints": [],
-                }
+            # Store dataset using data manager
+            print("[DEBUG] Storing dataset with data manager")
+            dataset_info_path = self.data_manager.store_dataset(
+                dataset_name, dataset_info, split_data, track_with_dvc=track_with_dvc
+            )
 
             # Create framework formats using framework data manager
             print("[DEBUG] Creating framework formats")
@@ -186,10 +166,10 @@ class DataPipeline:
             return {
                 "success": True,
                 "dataset_name": dataset_name,
-                "master_path": master_annotations_path,
+                "dataset_info_path": dataset_info_path,
                 "framework_paths": framework_paths,
                 "dvc_tracked": track_with_dvc
-                and self.master_data_manager.dvc_manager is not None,
+                and self.data_manager.dvc_manager is not None,
             }
 
         except Exception as e:
@@ -202,124 +182,242 @@ class DataPipeline:
                 "hints": [],
             }
 
+    def _load_coco_to_split_format(
+        self, coco_annotation_path: str, dataset_name: str
+    ) -> tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+        """
+        Load COCO annotation file and convert to split-based format.
+
+        Args:
+            coco_annotation_path: Path to COCO annotation file
+            dataset_name: Name of the dataset
+
+        Returns:
+            Tuple of (dataset_info, split_data)
+        """
+
+        with open(coco_annotation_path, "r") as f:
+            coco_data = json.load(f)
+
+        image_dir = Path(coco_annotation_path).parents[1] / "images"
+
+        assert image_dir.exists(), f"The expected format "
+
+        # Extract dataset info
+        dataset_info = {
+            "name": dataset_name,
+            "version": "1.0",
+            "schema_version": "1.0",
+            "task_type": "detection",
+            "classes": coco_data.get("categories", []),
+        }
+
+        # Group images and annotations by split
+        split_data = {}
+        images_by_split = {}
+        annotations_by_split = {}
+
+        # Determine split for each image (simple logic - can be improved)
+
+        for image in coco_data.get("images", []):
+            split = self._determine_split_from_image(image, coco_annotation_path)
+            path = image_dir / split / Path(image["file_name"]).name
+            image["file_name"] = str(path)
+            if split not in images_by_split:
+                images_by_split[split] = []
+                annotations_by_split[split] = []
+            images_by_split[split].append(image)
+
+        # Group annotations by split
+        for annotation in coco_data.get("annotations", []):
+            image_id = annotation["image_id"]
+            # Find which split this annotation belongs to
+            for split, images in images_by_split.items():
+                if any(img["id"] == image_id for img in images):
+                    annotations_by_split[split].append(annotation)
+                    break
+
+        # Create split data
+        for split in images_by_split.keys():
+            split_data[split] = {
+                "images": images_by_split[split],
+                "annotations": annotations_by_split[split],
+                "categories": coco_data.get("categories", []),
+            }
+
+        return dataset_info, split_data
+
+    def _determine_split_from_image(
+        self, image: Dict[str, Any], annotation_path: str
+    ) -> str:
+        """
+        Determine split for an image based on file path or annotation path.
+
+        Args:
+            image: COCO image object
+            annotation_path: Path to annotation file
+
+        Returns:
+            Split name (train, val, test)
+        """
+        file_name = image.get("file_name", "").lower()
+        annotation_path_lower = annotation_path.lower()
+
+        if (
+            "val" in file_name
+            or "validation" in file_name
+            or "val" in annotation_path_lower
+        ):
+            return "val"
+        elif "test" in file_name or "test" in annotation_path_lower:
+            return "test"
+        else:
+            return "train"
+
     def _apply_transformations_to_dataset(
-        self, master_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, split_data: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Apply transformations to all images and annotations in the dataset.
 
         Args:
-            master_data: Master format dataset data
+            split_data: Dictionary mapping split names to COCO format data
 
         Returns:
-            Transformed master data
+            Transformed split data
         """
-        transformed_images = []
-        transformed_annotations = []
-        transformed_image_info = []
+        transformed_split_data = {}
 
-        for image_info in master_data["images"]:
-            # Load image
-            image_path = Path(image_info["path"])
-            if not image_path.is_absolute():
-                image_path = self.path_manager.master_data_dir / image_path
+        for split_name, split_coco_data in split_data.items():
+            transformed_images = []
+            transformed_annotations = []
 
-            image = cv2.imread(str(image_path))
-            if image is None:
-                self.logger.warning(f"Could not load image: {image_path}")
-                continue
+            for image_info in split_coco_data["images"]:
+                # Load image
+                image_path = Path(image_info["file_name"])
+                if not image_path.is_absolute():
+                    # Try to find image relative to the data directory
+                    image_path = (
+                        self.path_manager.get_dataset_split_images_dir(
+                            "temp", split_name
+                        )
+                        / image_path
+                    )
 
-            # Get annotations for this image
-            image_annotations = [
-                ann
-                for ann in master_data["annotations"]
-                if ann["image_id"] == image_info["id"]
-            ]
+                # Load image using OpenCV
+                import cv2
 
-            # Apply transformations with correct interface
-            try:
-                inputs = {
-                    "image": image,
-                    "annotations": image_annotations,
-                    "info": image_info,
-                }
+                image = cv2.imread(str(image_path))
+                if image is None:
+                    self.logger.warning(f"Could not load image: {image_path}")
+                    continue
 
-                transformed_data = self.transformation_pipeline.transform(inputs)
+                # Get annotations for this image
+                image_annotations = [
+                    ann
+                    for ann in split_coco_data["annotations"]
+                    if ann["image_id"] == image_info["id"]
+                ]
 
-                for data in transformed_data:
-                    transformed_images.extend(data["image"])
-                    transformed_annotations.extend(data.get("annotations", []))
-                    transformed_image_info.extend(data["info"])
+                # Apply transformations
+                try:
+                    inputs = {
+                        "image": image,
+                        "annotations": image_annotations,
+                        "info": image_info,
+                    }
 
-            except Exception as e:
-                self.logger.error(
-                    f"Error transforming image {image_info['path']}: {str(e)}"
-                )
-                continue
+                    transformed_data = self.transformation_pipeline.transform(inputs)
 
-        return {
-            "images": transformed_images,
-            "annotations": transformed_annotations,
-            "categories": master_data.get("categories", []),
-            "info": transformed_image_info,
-        }
+                    for data in transformed_data:
+                        transformed_images.extend(data["image"])
+                        transformed_annotations.extend(data.get("annotations", []))
+
+                except Exception as e:
+                    self.logger.error(
+                        f"Error transforming image {image_info['file_name']}: {str(e)}"
+                    )
+                    continue
+
+            # Create transformed split data
+            transformed_split_data[split_name] = {
+                "images": transformed_images,
+                "annotations": transformed_annotations,
+                "categories": split_coco_data.get("categories", []),
+            }
+
+        return transformed_split_data
 
     def export_dataset(
         self, dataset_name: str, target_format: str, target_path: str
     ) -> bool:
         """
-        Export a dataset from master format to target format.
+        Export a dataset from COCO format to target format.
 
         Args:
-            dataset_name: Name of the dataset in master format
+            dataset_name: Name of the dataset in COCO format
             target_format: Target format ('coco' or 'yolo')
-            target_path: Path to save exported dataset
+            target_path: Path where to export the dataset
 
         Returns:
             True if export successful, False otherwise
         """
         try:
-            self.logger.info(
-                f"Exporting dataset '{dataset_name}' to {target_format} format"
-            )
+            # Load dataset data
+            dataset_data = self.data_manager.load_dataset_data(dataset_name)
 
-            # Check if dataset exists
-            if not self.path_manager.dataset_exists(dataset_name):
-                self.logger.error(f"Dataset '{dataset_name}' not found")
+            if target_format == "coco":
+                # Export COCO format
+                return self._export_coco_format(dataset_data, target_path)
+            elif target_format == "yolo":
+                # Export YOLO format
+                return self._export_yolo_format(dataset_data, target_path)
+            else:
+                self.logger.error(f"Unsupported target format: {target_format}")
                 return False
-
-            # Get or create adapter
-            if target_format not in self.adapters:
-                # Create adapter based on target format with proper master annotation path
-                master_annotation_path = str(
-                    self.path_manager.get_dataset_annotations_file(dataset_name)
-                )
-                if target_format == "coco":
-                    self.adapters[target_format] = COCOAdapter(master_annotation_path)
-                elif target_format == "yolo":
-                    self.adapters[target_format] = YOLOAdapter(master_annotation_path)
-                else:
-                    self.logger.error(f"Unsupported target format: {target_format}")
-                    return False
-
-            # Convert to target format
-            adapter = self.adapters[target_format]
-            adapter.load_master_annotation()
-
-            # Convert for each split
-            for split in ["train", "val", "test"]:
-                try:
-                    converted_data = adapter.convert(split)
-                    adapter.save(converted_data, target_path)
-                except Exception as e:
-                    self.logger.warning(f"Could not convert split '{split}': {str(e)}")
-                    continue
-
-            self.logger.info(f"Successfully exported dataset to {target_path}")
-            return True
 
         except Exception as e:
             self.logger.error(f"Error exporting dataset: {str(e)}")
+            return False
+
+    def _export_coco_format(
+        self, dataset_data: Dict[str, Any], target_path: str
+    ) -> bool:
+        """Export dataset to COCO format."""
+        try:
+            import json
+
+            target_path_obj = Path(target_path)
+            target_path_obj.mkdir(parents=True, exist_ok=True)
+
+            # Export each split
+            for split_name, split_data in dataset_data["split_data"].items():
+                split_file = target_path_obj / f"{split_name}.json"
+                with open(split_file, "w") as f:
+                    json.dump(split_data, f, indent=2)
+
+            # Export dataset info
+            info_file = target_path_obj / "dataset_info.json"
+            with open(info_file, "w") as f:
+                json.dump(dataset_data["dataset_info"], f, indent=2)
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Error exporting COCO format: {str(e)}")
+            return False
+
+    def _export_yolo_format(
+        self, dataset_data: Dict[str, Any], target_path: str
+    ) -> bool:
+        """Export dataset to YOLO format."""
+        try:
+            # Use framework data manager to convert COCO to YOLO
+            result = self.framework_data_manager.export_framework_format(
+                dataset_data["dataset_info"]["name"], "yolo"
+            )
+            return "path" in result
+        except Exception as e:
+            self.logger.error(f"Error exporting YOLO format: {str(e)}")
             return False
 
     def add_transformation(self, transformer) -> None:
@@ -327,42 +425,35 @@ class DataPipeline:
         Add a transformation to the pipeline.
 
         Args:
-            transformer: Transformer to add
+            transformer: Transformation to add
         """
-        self.transformation_pipeline.add_transformer(transformer)
+        if self.transformation_pipeline:
+            self.transformation_pipeline.add_transformer(transformer)
 
     def get_pipeline_status(self) -> Dict[str, Any]:
         """
-        Get status information about the pipeline.
+        Get the current status of the data pipeline.
 
         Returns:
-            Dictionary with pipeline status
+            Dictionary with pipeline status information
         """
         return {
-            "root": str(self.root),
-            "master_data_dir": str(self.path_manager.master_data_dir),
-            "transformation_pipeline": self.transformation_pipeline.get_pipeline_info(),
-            "supported_formats": ["coco", "yolo"],
-            "available_datasets": self.path_manager.list_datasets(),
+            "root_directory": str(self.root),
+            "dvc_enabled": self.data_manager.dvc_manager is not None,
+            "transformation_pipeline": self.transformation_pipeline.get_pipeline_info()
+            if self.transformation_pipeline
+            else None,
+            "datasets": self.list_datasets(),
         }
 
     def list_datasets(self) -> List[Dict[str, Any]]:
         """
-        List all available datasets in master storage.
+        List all available datasets.
 
         Returns:
             List of dataset information dictionaries
         """
-        datasets = []
-
-        for dataset_name in self.path_manager.list_datasets():
-            try:
-                dataset_info = self.get_dataset_info(dataset_name)
-                datasets.append(dataset_info)
-            except Exception as e:
-                self.logger.warning(f"Error reading dataset {dataset_name}: {str(e)}")
-
-        return datasets
+        return self.data_manager.list_datasets()
 
     def get_dataset_info(self, dataset_name: str) -> Dict[str, Any]:
         """
@@ -374,51 +465,20 @@ class DataPipeline:
         Returns:
             Dictionary with dataset information
         """
-        annotations_file = self.path_manager.get_dataset_annotations_file(dataset_name)
+        return self.data_manager.get_dataset_info(dataset_name)
 
-        if not annotations_file.exists():
-            raise FileNotFoundError(f"Dataset '{dataset_name}' not found")
+    def delete_dataset(self, dataset_name: str, remove_from_dvc: bool = True) -> bool:
+        """
+        Delete a dataset.
 
-        with open(annotations_file, "r") as f:
-            master_data = json.load(f)
+        Args:
+            dataset_name: Name of the dataset to delete
+            remove_from_dvc: Whether to remove from DVC tracking
 
-        # Count images and annotations
-        total_images = len(master_data.get("images", []))
-        total_annotations = len(master_data.get("annotations", []))
-
-        # Count images by split
-        images_by_split = {}
-        for image in master_data.get("images", []):
-            split = image.get("split", "unknown")
-            images_by_split[split] = images_by_split.get(split, 0) + 1
-
-        # Count annotations by type
-        annotations_by_type = {}
-        for ann in master_data.get("annotations", []):
-            ann_type = "detection"  # Default type
-            if "segmentation" in ann and ann["segmentation"]:
-                ann_type = "segmentation"
-            elif "keypoints" in ann and ann["keypoints"]:
-                ann_type = "keypoints"
-
-            annotations_by_type[ann_type] = annotations_by_type.get(ann_type, 0) + 1
-
-        # Get categories
-        categories = master_data.get("dataset_info", {}).get("classes", [])
-
-        # Get framework format availability
-        framework_formats = self.path_manager.list_framework_formats(dataset_name)
-
-        return {
-            "dataset_name": dataset_name,
-            "master_annotations_file": str(annotations_file),
-            "total_images": total_images,
-            "total_annotations": total_annotations,
-            "images_by_split": images_by_split,
-            "annotations_by_type": annotations_by_type,
-            "categories": categories,
-            "framework_formats": framework_formats,
-        }
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        return self.data_manager.delete_dataset(dataset_name, remove_from_dvc)
 
     def export_framework_format(
         self, dataset_name: str, framework: str

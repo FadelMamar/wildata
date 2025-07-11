@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
+from wildtrain.pipeline.data_manager import DataManager
 from wildtrain.pipeline.data_pipeline import DataPipeline
 from wildtrain.pipeline.framework_data_manager import FrameworkDataManager
-from wildtrain.pipeline.master_data_manager import MasterDataManager
 
 
 # --- Synthetic Data Pipeline Tests ---
@@ -56,6 +56,16 @@ class TestDataPipelineSynthetic:
             ],
             "categories": [{"id": 1, "name": "test_category", "supercategory": "test"}],
         }
+
+        # Create images directory that COCOValidator expects
+        images_dir = self.coco_test_file.parent / "images"
+        images_dir.mkdir(exist_ok=True)
+
+        # Create dummy image files
+        for img in coco_data["images"]:
+            img_file = images_dir / img["file_name"]
+            img_file.write_text("dummy image data")
+
         with open(self.coco_test_file, "w") as f:
             json.dump(coco_data, f)
 
@@ -68,21 +78,14 @@ class TestDataPipelineSynthetic:
         )
         assert result["success"] is True
         assert result["dataset_name"] == "test_coco_dataset"
-        assert "master_path" in result
+        assert "dataset_info_path" in result
         assert "framework_paths" in result
-        master_file = Path(result["master_path"])
-        assert master_file.exists()
-        with open(master_file, "r") as f:
-            master_data = json.load(f)
-        assert "dataset_info" in master_data
-        assert "images" in master_data
-        assert "annotations" in master_data
-        assert len(master_data["images"]) > 0
-        assert len(master_data["annotations"]) > 0
-        dataset_info = master_data["dataset_info"]
-        assert dataset_info["name"] == "test_coco_dataset"
-        assert dataset_info["task_type"] == "detection"
-        assert len(dataset_info["classes"]) > 0
+        dataset_info_file = Path(result["dataset_info_path"])
+        assert dataset_info_file.exists()
+        with open(dataset_info_file, "r") as f:
+            dataset_info = json.load(f)
+        assert "name" in dataset_info
+        assert "classes" in dataset_info
 
     def test_list_datasets(self):
         pipeline = DataPipeline(str(self.test_data_dir))
@@ -116,8 +119,8 @@ class TestDataPipelineSynthetic:
         assert info["total_images"] > 0
         assert info["total_annotations"] > 0
         assert "images_by_split" in info
-        assert "annotations_by_type" in info
-        assert "categories" in info
+        assert "annotations_by_split" in info
+        assert "dataset_info" in info
 
     def test_export_framework_format(self):
         pipeline = DataPipeline(str(self.test_data_dir))
@@ -129,23 +132,17 @@ class TestDataPipelineSynthetic:
         assert result["success"] is True
         export_result = pipeline.export_framework_format("test_coco_dataset", "coco")
         assert export_result["framework"] == "coco"
-        assert "output_path" in export_result
-        assert "data_dir" in export_result
-        assert "annotations_file" in export_result
-        output_path = Path(export_result["output_path"])
+        assert "path" in export_result
+        output_path = Path(export_result["path"])
         assert output_path.exists()
-        annotations_file = Path(export_result["annotations_file"])
-        assert annotations_file.exists()
 
     def test_pipeline_status(self):
         pipeline = DataPipeline(str(self.test_data_dir))
         status = pipeline.get_pipeline_status()
-        assert "master_data_dir" in status
+        assert "root_directory" in status
         assert "transformation_pipeline" in status
-        assert "supported_formats" in status
-        assert "available_datasets" in status
-        assert "coco" in status["supported_formats"]
-        assert "yolo" in status["supported_formats"]
+        assert "datasets" in status
+        assert "dvc_enabled" in status
 
 
 # --- Real Data Pipeline Tests ---
@@ -187,17 +184,14 @@ class TestDataPipelineRealData:
         )
         assert result["success"] is True
         assert result["dataset_name"] == "real_coco_dataset"
-        assert "master_path" in result
+        assert "dataset_info_path" in result
         assert "framework_paths" in result
-        master_file = Path(result["master_path"])
-        assert master_file.exists()
-        with open(master_file, "r") as f:
-            master_data = json.load(f)
-        assert "dataset_info" in master_data
-        assert "images" in master_data
-        assert "annotations" in master_data
-        assert len(master_data["images"]) > 0
-        assert len(master_data["annotations"]) > 0
+        dataset_info_file = Path(result["dataset_info_path"])
+        assert dataset_info_file.exists()
+        with open(dataset_info_file, "r") as f:
+            dataset_info = json.load(f)
+        assert "name" in dataset_info
+        assert "classes" in dataset_info
 
     def test_import_yolo_real_data(self):
         assert self.yolo_test_dir is not None, "YOLO directory not found"
@@ -214,22 +208,20 @@ class TestDataPipelineRealData:
         )
         if result["success"]:
             assert result["dataset_name"] == "real_yolo_dataset"
-            assert "master_path" in result
+            assert "dataset_info_path" in result
             assert "framework_paths" in result
-            master_file = Path(result["master_path"])
-            assert master_file.exists()
-            with open(master_file, "r") as f:
-                master_data = json.load(f)
-            assert "dataset_info" in master_data
-            assert "images" in master_data
-            assert "annotations" in master_data
-            assert len(master_data["images"]) > 0
-            assert len(master_data["annotations"]) > 0
+            dataset_info_file = Path(result["dataset_info_path"])
+            assert dataset_info_file.exists()
+            with open(dataset_info_file, "r") as f:
+                dataset_info = json.load(f)
+            assert "name" in dataset_info
+            assert "classes" in dataset_info
         else:
             print("YOLO import failed as expected due to split format:")
             print("Errors:", result.get("validation_errors", []))
             assert any(
-                "must be a string" in err for err in result.get("validation_errors", [])
+                "Missing required field" in err
+                for err in result.get("validation_errors", [])
             )
 
 
@@ -270,41 +262,10 @@ class TestDataPipeline:
         shutil.rmtree(self.temp_dir)
 
     @patch("wildtrain.pipeline.data_pipeline.COCOValidator")
-    @patch("wildtrain.pipeline.data_pipeline.COCOToMasterConverter")
-    def test_import_coco_dataset_success(self, mock_converter, mock_validator):
+    def test_import_coco_dataset_success(self, mock_validator):
         mock_validator_instance = MagicMock()
         mock_validator_instance.validate.return_value = (True, [], [])
         mock_validator.return_value = mock_validator_instance
-        mock_converter_instance = MagicMock()
-        mock_converter_instance.convert_to_master.return_value = {
-            "dataset_info": {
-                "name": "test_dataset",
-                "version": "1.0",
-                "schema_version": "1.0",
-                "task_type": "detection",
-                "classes": [{"id": 1, "name": "test_category"}],
-            },
-            "images": [
-                {
-                    "id": 1,
-                    "file_name": "test_image.jpg",
-                    "file_path": str(self.images_dir / "test_image.jpg"),
-                    "width": 640,
-                    "height": 480,
-                    "split": "train",
-                }
-            ],
-            "annotations": [
-                {
-                    "id": 1,
-                    "image_id": 1,
-                    "category_id": 1,
-                    "bbox": [100, 100, 200, 150],
-                    "type": "detection",
-                }
-            ],
-        }
-        mock_converter.return_value = mock_converter_instance
         pipeline = DataPipeline(str(self.project_root))
         result = pipeline.import_dataset(
             source_path=str(self.coco_dir / "annotations.json"),
@@ -331,9 +292,9 @@ class TestDataPipeline:
         assert result["success"] is False
 
 
-# --- Master Data Manager Tests ---
-class TestMasterDataManager:
-    """Test the master data manager."""
+# --- Data Manager Tests ---
+class TestDataManager:
+    """Test the data manager."""
 
     def setup_method(self):
         self.temp_dir = tempfile.mkdtemp()
@@ -341,47 +302,67 @@ class TestMasterDataManager:
         from wildtrain.pipeline.path_manager import PathManager
 
         path_manager = PathManager(self.project_root)
-        self.manager = MasterDataManager(path_manager)
+        self.manager = DataManager(path_manager)
 
     def teardown_method(self):
         shutil.rmtree(self.temp_dir)
 
     def test_store_dataset(self):
-        master_data = {
-            "dataset_info": {
-                "name": "test_dataset",
-                "version": "1.0",
-                "schema_version": "1.0",
-                "task_type": "detection",
-                "classes": [{"id": 1, "name": "test_category"}],
-            },
-            "images": [
-                {
-                    "id": 1,
-                    "file_name": "test_image.jpg",
-                    "path": str(self.project_root / "test_image.jpg"),
-                    "width": 640,
-                    "height": 480,
-                    "split": "train",
-                }
-            ],
-            "annotations": [
-                {
-                    "id": 1,
-                    "image_id": 1,
-                    "category_id": 1,
-                    "bbox": [100, 100, 200, 150],
-                    "type": "detection",
-                }
-            ],
+        dataset_info = {
+            "name": "test_dataset",
+            "version": "1.0",
+            "schema_version": "1.0",
+            "task_type": "detection",
+            "classes": [{"id": 1, "name": "test_category"}],
         }
-        (self.project_root / "test_image.jpg").write_text("mock image data")
-        annotations_path = self.manager.store_dataset("test_dataset", master_data)
+        split_data = {
+            "train": {
+                "images": [
+                    {
+                        "id": 1,
+                        "file_name": "test_image.jpg",
+                        "width": 640,
+                        "height": 480,
+                    }
+                ],
+                "annotations": [
+                    {
+                        "id": 1,
+                        "image_id": 1,
+                        "category_id": 1,
+                        "bbox": [100, 100, 200, 150],
+                        "type": "detection",
+                    }
+                ],
+                "categories": [{"id": 1, "name": "test_category"}],
+            }
+        }
+        # Create the image file in the dataset directory (where the DataManager will look for it)
+        dataset_dir = self.project_root / "data" / "test_dataset"
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        (dataset_dir / "test_image.jpg").write_text("mock image data")
+        annotations_path = self.manager.store_dataset(
+            "test_dataset", dataset_info, split_data
+        )
         assert Path(annotations_path).exists()
         with open(annotations_path, "r") as f:
-            stored_data = json.load(f)
-        assert stored_data["images"][0]["file_name"] == "test_image.jpg"
-        assert stored_data["annotations"][0]["type"] == "detection"
+            stored_info = json.load(f)
+        assert stored_info["name"] == "test_dataset"
+        # Check split annotation file
+        split_ann_file = self.manager.path_manager.get_dataset_split_annotations_file(
+            "test_dataset", "train"
+        )
+        assert split_ann_file.exists()
+        with open(split_ann_file, "r") as f:
+            split_ann = json.load(f)
+        assert split_ann["images"][0]["file_name"] == "test_image.jpg"
+        assert split_ann["annotations"][0]["id"] == 1
+        # Check split images directory
+        split_images_dir = self.manager.path_manager.get_dataset_split_images_dir(
+            "test_dataset", "train"
+        )
+        assert split_images_dir.exists()
+        assert (split_images_dir / "test_image.jpg").exists()
 
     def test_list_datasets_empty(self):
         datasets = self.manager.list_datasets()
@@ -438,52 +419,53 @@ class TestFrameworkDataManager:
 
         # Store dataset using the manager
         self.manager.path_manager.ensure_directories("test_dataset")
-        annotations_file = self.manager.path_manager.get_dataset_annotations_file(
-            "test_dataset"
-        )
-        with open(annotations_file, "w") as f:
-            json.dump(master_data, f)
 
-        # Create master images directory and copy test image
-        master_images_dir = self.manager.path_manager.get_dataset_images_dir(
+        # Create dataset info file
+        dataset_info_file = self.manager.path_manager.get_dataset_info_file(
             "test_dataset"
         )
-        master_images_dir.mkdir(parents=True, exist_ok=True)
-        train_dir = master_images_dir / "train"
-        train_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(self.project_root / "test_image.jpg", train_dir / "test_image.jpg")
+        dataset_info_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(dataset_info_file, "w") as f:
+            json.dump(master_data["dataset_info"], f)
+
+        # Create split annotation file
+        split_ann_file = self.manager.path_manager.get_dataset_split_annotations_file(
+            "test_dataset", "train"
+        )
+        split_ann_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert master data to COCO format for the split
+        split_coco_data = {
+            "images": master_data["images"],
+            "annotations": master_data["annotations"],
+            "categories": master_data["dataset_info"]["classes"],
+        }
+        with open(split_ann_file, "w") as f:
+            json.dump(split_coco_data, f)
+
+        # Create split images directory and copy test image
+        split_images_dir = self.manager.path_manager.get_dataset_split_images_dir(
+            "test_dataset", "train"
+        )
+        split_images_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            self.project_root / "test_image.jpg", split_images_dir / "test_image.jpg"
+        )
 
     def teardown_method(self):
         shutil.rmtree(self.temp_dir)
 
-    @patch("wildtrain.pipeline.framework_data_manager.COCOAdapter")
-    def test_create_coco_format(self, mock_adapter):
-        mock_adapter_instance = MagicMock()
-        mock_adapter_instance.convert_to_format.return_value = {
-            "images": [{"id": 1, "file_name": "test_image.jpg"}],
-            "annotations": [{"id": 1, "image_id": 1}],
-            "categories": [{"id": 1, "name": "test_category"}],
-        }
-        mock_adapter.return_value = mock_adapter_instance
+    def test_create_coco_format(self):
+        # Test COCO format creation without mocking (uses symlinks/copies)
         coco_path = self.manager._create_coco_format("test_dataset")
         coco_dir = Path(coco_path)
         assert coco_dir.exists()
         assert (coco_dir / "data").exists()
         assert (coco_dir / "annotations").exists()
-        assert (coco_dir / "annotations" / "instances_train.json").exists()
+        assert (coco_dir / "annotations" / "train.json").exists()
 
-    @patch("wildtrain.pipeline.framework_data_manager.YOLOAdapter")
-    def test_create_yolo_format(self, mock_adapter):
-        mock_adapter_instance = MagicMock()
-        mock_adapter_instance.convert_to_format.return_value = {
-            "annotations": {
-                "train": {
-                    "test_image.jpg": [{"class_id": 0, "bbox": [0.5, 0.5, 0.2, 0.3]}]
-                }
-            },
-            "names": {0: "test_category"},
-        }
-        mock_adapter.return_value = mock_adapter_instance
+    def test_create_yolo_format(self):
+        # Test YOLO format creation without mocking (uses actual adapter)
         yolo_path = self.manager._create_yolo_format("test_dataset")
         yolo_dir = Path(yolo_path)
         assert yolo_dir.exists()

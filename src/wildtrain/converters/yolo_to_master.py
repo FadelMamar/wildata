@@ -136,11 +136,90 @@ class YOLOToMasterConverter(BaseConverter):
 
         # Validate the output if requested
         if validate_output:
-            self._validate_master_annotation(
+            self._validate_coco_annotation(
                 master_annotation, filter_invalid_annotations
             )
 
         return master_annotation
+
+    def convert_to_coco_format(
+        self,
+        dataset_name: str,
+        version: str = "1.0",
+        task_type: str = "detection",
+        validate_output: bool = True,
+        filter_invalid_annotations: bool = False,
+    ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+        """
+        Convert the loaded YOLO data to COCO format with split-based organization.
+        Args:
+            dataset_name (str): Name of the dataset.
+            version (str): Version of the dataset.
+            task_type (str): Type of task (detection, segmentation).
+            validate_output (bool): Whether to validate the output.
+            filter_invalid_annotations (bool): If True, filter out invalid annotations instead of raising errors.
+        Returns:
+            Tuple of (dataset_info, split_data) where split_data maps split names to COCO format data.
+        """
+        # Extract class names
+        class_names_dict = self.yolo_data.get("names", {})
+        classes = [
+            {
+                "id": int(class_id),
+                "name": name,
+                "supercategory": "",  # YOLO doesn't have supercategories
+            }
+            for class_id, name in class_names_dict.items()
+        ]
+
+        # Create dataset info
+        dataset_info = {
+            "name": dataset_name,
+            "version": version,
+            "schema_version": "1.0",
+            "task_type": task_type,
+            "classes": classes,
+        }
+
+        # Process each split
+        split_data = {}
+
+        for split in ["train", "val", "test"]:
+            split_paths = self.yolo_data.get(split, [])
+            if not split_paths:
+                continue
+
+            split_images = []
+            split_annotations = []
+            annotation_id = 1
+
+            if isinstance(split_paths, list):
+                # Handle list of paths
+                for split_path in split_paths:
+                    resolved = self._resolve_path(split_path)
+                    if not split_path or not os.path.exists(resolved):
+                        continue
+                    self._process_split_directory_for_coco(
+                        resolved, split, split_images, split_annotations, annotation_id
+                    )
+                    annotation_id = len(split_annotations) + 1
+            elif isinstance(split_paths, str):
+                resolved = self._resolve_path(split_paths)
+                if resolved and os.path.exists(resolved):
+                    self._process_split_directory_for_coco(
+                        resolved, split, split_images, split_annotations, annotation_id
+                    )
+                    annotation_id = len(split_annotations) + 1
+
+            # Only add split if it has data
+            if split_images:
+                split_data[split] = {
+                    "images": split_images,
+                    "annotations": split_annotations,
+                    "categories": classes,
+                }
+
+        return dataset_info, split_data
 
     def _process_split_directory(
         self,
@@ -182,6 +261,45 @@ class YOLOToMasterConverter(BaseConverter):
                     ann["id"] = annotation_id
                     annotation_id += 1
                     all_annotations.append(ann)
+
+    def _process_split_directory_for_coco(
+        self,
+        split_path: str,
+        split_name: str,
+        split_images: List,
+        split_annotations: List,
+        annotation_id: int,
+    ):
+        """Process a single split directory for COCO format."""
+        # Get image files
+        image_files = self._get_image_files(split_path)
+
+        # Process each image
+        for img_idx, img_file in enumerate(image_files):
+            img_id = len(split_images) + 1
+
+            # Get image dimensions
+            width, height = self._get_image_dimensions(img_file)
+
+            # Create COCO image entry
+            coco_image = {
+                "id": img_id,
+                "file_name": os.path.basename(img_file),
+                "width": width,
+                "height": height,
+            }
+            split_images.append(coco_image)
+
+            # Process corresponding label file
+            label_file = self._get_label_file_path(img_file)
+            if os.path.exists(label_file):
+                annotations = self._parse_yolo_label_file(
+                    label_file, img_id, width, height
+                )
+                for ann in annotations:
+                    ann["id"] = annotation_id
+                    annotation_id += 1
+                    split_annotations.append(ann)
 
     def _get_image_files(self, images_dir: str) -> List[str]:
         image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".tiff"]

@@ -1,5 +1,5 @@
 """
-Framework data manager for creating framework-specific formats using symlinks.
+Framework data manager for creating framework-specific formats.
 """
 
 import json
@@ -8,11 +8,10 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
 
-from ..adapters.coco_adapter import COCOAdapter
 from ..adapters.yolo_adapter import YOLOAdapter
 from .path_manager import PathManager
 
@@ -21,13 +20,12 @@ logger = logging.getLogger(__name__)
 
 class FrameworkDataManager:
     """
-    Manages framework-specific data formats using symlinks to master data.
+    Manages creation of framework-specific formats from COCO storage.
 
     This class is responsible for:
-    - Creating framework-specific formats (COCO, YOLO)
-    - Managing symlinks to master data
-    - Coordinating with adapters for format conversion
-    - Maintaining framework directory structures
+    - Creating COCO format exports (symlinks/copies from COCO storage)
+    - Creating YOLO format exports using YOLOAdapter
+    - Managing framework format directories and files
     """
 
     def __init__(self, path_manager: PathManager):
@@ -42,22 +40,22 @@ class FrameworkDataManager:
 
     def create_framework_formats(self, dataset_name: str) -> Dict[str, str]:
         """
-        Create framework-specific formats for a dataset.
+        Create framework formats for a dataset.
 
         Args:
             dataset_name: Name of the dataset
 
         Returns:
-            Dictionary mapping framework names to their output paths
+            Dictionary mapping framework names to their paths
         """
         framework_paths = {}
 
         # Create COCO format
-        try:
-            coco_path = self._create_coco_format(dataset_name)
-            framework_paths["coco"] = coco_path
-        except Exception as e:
-            self.logger.error(f"Error creating COCO format: {e}")
+        # try:
+        #     coco_path = self._create_coco_format(dataset_name)
+        #     framework_paths["coco"] = coco_path
+        # except Exception as e:
+        #     self.logger.error(f"Error creating COCO format: {e}")
 
         # Create YOLO format
         try:
@@ -69,7 +67,7 @@ class FrameworkDataManager:
         return framework_paths
 
     def _create_coco_format(self, dataset_name: str) -> str:
-        """Create COCO format for a dataset."""
+        """Create COCO format for a dataset (symlink/copy from COCO storage)."""
         # Ensure directories exist
         self.path_manager.ensure_directories(dataset_name, ["coco"])
 
@@ -80,32 +78,31 @@ class FrameworkDataManager:
             dataset_name, "coco"
         )
 
-        # Create symlinks for images
-        self._create_image_symlinks(dataset_name, coco_data_dir, "coco")
-
-        # Generate COCO annotations using adapter
-        master_data = self._load_master_data(dataset_name)
-
-        adapter = COCOAdapter(None, master_data=master_data)
+        # Symlink/copy images and annotations for each split
         existing_splits = self.path_manager.get_existing_splits(dataset_name)
         for split in existing_splits:
-            try:
-                all_coco_data = {"images": [], "annotations": [], "categories": []}
-                split_data = adapter.convert(split)
-                all_coco_data["images"].extend(split_data.get("images", []))
-                all_coco_data["annotations"].extend(split_data.get("annotations", []))
-                if not all_coco_data["categories"]:
-                    all_coco_data["categories"] = split_data.get("categories", [])
+            # Images
+            src_images_dir = self.path_manager.get_dataset_split_images_dir(
+                dataset_name, split
+            )
+            dst_images_dir = coco_data_dir / split
+            dst_images_dir.mkdir(parents=True, exist_ok=True)
+            self._symlink_or_copy_dir(src_images_dir, dst_images_dir)
 
-                # Save COCO annotations
-                coco_annotations_file = (
-                    coco_annotations_dir / f"annotations_{split}.json"
-                )
-                adapter.save(all_coco_data, str(coco_annotations_file))
+            # Annotations
+            src_ann_file = self.path_manager.get_dataset_split_annotations_file(
+                dataset_name, split
+            )
+            dst_ann_file = coco_annotations_dir / f"{split}.json"
+            dst_ann_file.parent.mkdir(parents=True, exist_ok=True)
+            if dst_ann_file.exists():
+                dst_ann_file.unlink()
+            shutil.copy2(src_ann_file, dst_ann_file)
 
-            except Exception as e:
-                self.logger.warning(f"Could not convert split '{split}': {str(e)}")
-                continue
+        # Copy dataset_info.json
+        src_info_file = self.path_manager.get_dataset_info_file(dataset_name)
+        dst_info_file = coco_dir / "dataset_info.json"
+        shutil.copy2(src_info_file, dst_info_file)
 
         self.logger.info(f"Created COCO format for dataset '{dataset_name}'")
         return str(coco_dir)
@@ -125,26 +122,39 @@ class FrameworkDataManager:
         )
 
         # Create symlinks for images
-        self._create_image_symlinks(dataset_name, yolo_images_dir, "yolo")
+        self._create_image_symlinks(dataset_name, yolo_images_dir)
 
-        # Generate YOLO annotations using adapter
-        master_data = self._load_master_data(dataset_name)
-
-        adapter = YOLOAdapter(None, master_data=master_data)
-
-        # Convert for each existing split using PathManager
-        all_yolo_data = {"annotations": {}, "names": {}}
+        # Generate YOLO annotations using adapter for each split
         existing_splits = self.path_manager.get_existing_splits(dataset_name)
+        dataset_info = self._load_dataset_info(dataset_name)
+
+        all_yolo_data = {"annotations": {}, "names": {}}
 
         for split in existing_splits:
             try:
-                split_data = adapter.convert(split)
-                all_yolo_data["annotations"][split] = split_data
+                # Load split COCO data
+                split_ann_file = self.path_manager.get_dataset_split_annotations_file(
+                    dataset_name, split
+                )
+                if not split_ann_file.exists():
+                    continue
 
-                # Get class names from master data
+                with open(split_ann_file, "r") as f:
+                    split_coco_data = json.load(f)
+
+                # Create adapter for this split
+                adapter = YOLOAdapter(coco_data=split_coco_data)
+                adapter.load_coco_annotation()
+
+                # Convert to YOLO format
+                split_yolo = adapter.convert(split)
+                all_yolo_data["annotations"][split] = split_yolo
+
+                # Get class names from first split
                 if not all_yolo_data["names"]:
-                    classes = master_data.get("dataset_info", {}).get("classes", [])
+                    classes = dataset_info.get("classes", [])
                     all_yolo_data["names"] = {cat["id"]: cat["name"] for cat in classes}
+
             except Exception as e:
                 self.logger.warning(f"Could not convert split '{split}': {str(e)}")
                 continue
@@ -156,105 +166,74 @@ class FrameworkDataManager:
         self.logger.info(f"Created YOLO format for dataset '{dataset_name}'")
         return str(yolo_dir)
 
-    def _create_image_symlinks(
-        self, dataset_name: str, target_dir: Path, framework: str
-    ):
+    def _create_image_symlinks(self, dataset_name: str, target_dir: Path):
         """Create symlinks for images in the target directory."""
-        logger.info(f"Creating symlinks for images in {target_dir} for {framework}")
+        logger.info(f"Creating symlinks for images in {target_dir}")
 
         # Get existing splits from PathManager
         existing_splits = self.path_manager.get_existing_splits(dataset_name)
-
         if not existing_splits:
             self.logger.warning(
                 f"No existing splits found for dataset '{dataset_name}'"
             )
             return
 
-        # Create split directories only for existing splits
         for split in existing_splits:
             split_dir = target_dir / split
             split_dir.mkdir(exist_ok=True)
-
-            # Get master images directory for this split
-            master_split_images_dir = self.path_manager.get_master_split_images_dir(
+            src_images_dir = self.path_manager.get_dataset_split_images_dir(
                 dataset_name, split
             )
+            self._symlink_or_copy_dir(src_images_dir, split_dir)
 
-            if master_split_images_dir.exists():
-                # Create symlinks for each image
-                for image_file in master_split_images_dir.iterdir():
-                    if image_file.is_file() and image_file.suffix.lower() in [
-                        ".jpg",
-                        ".jpeg",
-                        ".png",
-                        ".bmp",
-                    ]:
-                        symlink_path = split_dir / image_file.name
+    def _symlink_or_copy_dir(self, src_dir: Path, dst_dir: Path):
+        """Symlink all files from src_dir to dst_dir, or copy if symlinks are not supported."""
+        src_dir = src_dir.resolve()
+        dst_dir = dst_dir.resolve()
+        for item in src_dir.iterdir():
+            dst_item = dst_dir / item.name
+            if dst_item.exists():
+                continue
+            try:
+                relative_path = os.path.relpath(item, dst_dir)
+                os.symlink(relative_path, dst_item)
+                logger.info(f"Created relative symlink: {dst_item} -> {relative_path}")
+            except Exception:
+                shutil.copy2(item, dst_item)
 
-                        # Create relative symlink to master image
-                        relative_path = self.path_manager.get_relative_path(
-                            image_file, start=split_dir
-                        )
-                        # Remove existing symlink if it exists
-                        if symlink_path.exists():
-                            symlink_path.unlink()
-
-                        # Create symlink
-                        try:
-                            os.symlink(relative_path, symlink_path)
-                        except OSError:
-                            # Fallback to copying if symlink fails (e.g., on Windows without admin)
-                            shutil.copy2(image_file, symlink_path)
-            else:
-                self.logger.warning(
-                    f"Master split directory not found: {master_split_images_dir}"
-                )
-
-    def _load_master_data(self, dataset_name: str) -> Dict[str, Any]:
-        """Load master data for a dataset."""
-        annotations_file = self.path_manager.get_dataset_annotations_file(dataset_name)
-
-        if not annotations_file.exists():
-            raise FileNotFoundError(f"Master annotations not found: {annotations_file}")
-
-        with open(annotations_file, "r") as f:
-            return json.load(f)
+    def _load_dataset_info(self, dataset_name: str) -> Dict[str, Any]:
+        """Load dataset_info.json for a dataset."""
+        info_file = self.path_manager.get_dataset_info_file(dataset_name)
+        if info_file.exists():
+            with open(info_file, "r") as f:
+                return json.load(f)
+        return {}
 
     def _save_yolo_annotations(self, labels_dir: Path, yolo_data: Dict[str, Any]):
-        """Save YOLO label files."""
-        annotations = yolo_data.get("annotations", {})
-
-        for split, split_annotations in annotations.items():
-            split_labels_dir = labels_dir / split
-            split_labels_dir.mkdir(exist_ok=True)
-
-            for image_name, label_lines in split_annotations.items():
-                label_file = split_labels_dir / f"{Path(image_name).stem}.txt"
-
+        """Save YOLO annotations for all splits."""
+        labels_dir.mkdir(parents=True, exist_ok=True)
+        for split, split_ann in yolo_data["annotations"].items():
+            split_dir = labels_dir / split
+            split_dir.mkdir(parents=True, exist_ok=True)
+            for image_name, ann_list in split_ann.items():
+                label_file = split_dir / f"{Path(image_name).stem}.txt"
                 with open(label_file, "w") as f:
-                    for line in label_lines:
-                        f.write(line + "\n")
+                    for ann in ann_list:
+                        f.write(ann + "\n")
 
     def _save_yolo_data_yaml(
         self, yolo_dir: Path, dataset_name: str, yolo_data: Dict[str, Any]
     ):
         """Save YOLO data.yaml file."""
         data_yaml = {
-            "path": str(yolo_dir.absolute()),
-            "train": "images/train",
-            "val": "images/val",
-            "test": "images/test",
-            "names": yolo_data.get("names", {}),
+            "path": str(yolo_dir),
+            "train": str(yolo_dir / "images" / "train"),
+            "val": str(yolo_dir / "images" / "val"),
+            "test": str(yolo_dir / "images" / "test"),
+            "names": yolo_data["names"],
         }
-
-        # Remove test if it doesn't exist
-        if not (yolo_dir / "images" / "test").exists():
-            del data_yaml["test"]
-
-        yaml_file = yolo_dir / "data.yaml"
-        with open(yaml_file, "w") as f:
-            yaml.dump(data_yaml, f, default_flow_style=False)
+        with open(yolo_dir / "data.yaml", "w") as f:
+            yaml.safe_dump(data_yaml, f)
 
     def export_framework_format(
         self, dataset_name: str, framework: str
@@ -270,51 +249,12 @@ class FrameworkDataManager:
             Dictionary with export information
         """
         if framework.lower() == "coco":
-            return self._export_coco_format(dataset_name)
+            path = self._create_coco_format(dataset_name)
         elif framework.lower() == "yolo":
-            return self._export_yolo_format(dataset_name)
+            path = self._create_yolo_format(dataset_name)
         else:
             raise ValueError(f"Unsupported framework: {framework}")
-
-    def _export_coco_format(self, dataset_name: str) -> Dict[str, Any]:
-        """Export to COCO format."""
-        coco_dir = self.path_manager.get_framework_format_dir(dataset_name, "coco")
-
-        if not coco_dir.exists():
-            # Create the format if it doesn't exist
-            self._create_coco_format(dataset_name)
-
-        return {
-            "framework": "coco",
-            "output_path": str(coco_dir),
-            "data_dir": str(
-                self.path_manager.get_framework_images_dir(dataset_name, "coco")
-            ),
-            "annotations_file": str(
-                self.path_manager.get_framework_annotations_dir(dataset_name, "coco")
-                / "annotations.json"
-            ),
-        }
-
-    def _export_yolo_format(self, dataset_name: str) -> Dict[str, Any]:
-        """Export to YOLO format."""
-        yolo_dir = self.path_manager.get_framework_format_dir(dataset_name, "yolo")
-
-        if not yolo_dir.exists():
-            # Create the format if it doesn't exist
-            self._create_yolo_format(dataset_name)
-
-        return {
-            "framework": "yolo",
-            "output_path": str(yolo_dir),
-            "images_dir": str(
-                self.path_manager.get_framework_images_dir(dataset_name, "yolo")
-            ),
-            "labels_dir": str(
-                self.path_manager.get_framework_annotations_dir(dataset_name, "yolo")
-            ),
-            "data_yaml": str(yolo_dir / "data.yaml"),
-        }
+        return {"framework": framework, "path": path}
 
     def list_framework_formats(self, dataset_name: str) -> List[Dict[str, Any]]:
         """
@@ -327,15 +267,7 @@ class FrameworkDataManager:
             List of framework format information
         """
         formats = []
-
-        # Check COCO format
-        coco_dir = self.path_manager.get_framework_format_dir(dataset_name, "coco")
-        if coco_dir.exists():
-            formats.append({"framework": "coco", "path": str(coco_dir), "exists": True})
-
-        # Check YOLO format
-        yolo_dir = self.path_manager.get_framework_format_dir(dataset_name, "yolo")
-        if yolo_dir.exists():
-            formats.append({"framework": "yolo", "path": str(yolo_dir), "exists": True})
-
+        for framework in ["coco", "yolo"]:
+            exists = self.path_manager.framework_format_exists(dataset_name, framework)
+            formats.append({"framework": framework, "exists": exists})
         return formats
