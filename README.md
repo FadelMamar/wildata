@@ -1,252 +1,326 @@
 # WildTrain Data Pipeline
 
-A robust data pipeline for managing deep learning datasets in a unified master format and creating framework-specific formats using symlinks.
+A comprehensive data pipeline for managing computer vision datasets with support for multiple annotation formats, data transformations, and DVC integration for data versioning.
 
-## 🎯 Overview
+## Features
 
-WildTrain provides a unified data management system that:
+### 🎯 Core Features
+- **Multi-format Support**: Import from COCO and YOLO formats
+- **Master Format**: Unified internal representation for all datasets
+- **Data Validation**: Comprehensive validation for each format
+- **Framework Export**: Export to COCO and YOLO formats for training
+- **Data Transformations**: Augmentation and tiling capabilities
 
-1. **Validates** input data formats (COCO, YOLO)
-2. **Converts** to a master annotation format
-3. **Stores** data efficiently with symlinks to avoid duplication
-4. **Generates** framework-specific formats on-demand
+### 📦 DVC Integration
+- **Data Versioning**: Git-like versioning for datasets
+- **Remote Storage**: Support for S3, GCS, Azure, SSH, and HDFS
+- **Pipeline Management**: Automated workflows with `dvc.yaml`
+- **Experiment Tracking**: Track dataset versions and transformations
+- **Collaboration**: Share datasets across teams
 
-## 📁 Project Structure
+### 🔧 Data Transformations
+- **Augmentation**: Rotation, brightness, contrast, noise
+- **Tiling**: Image tiling with configurable parameters
+- **Pipeline Support**: Chain multiple transformations
 
-```
-project_root/
-├── data/
-│   ├── images/                    # Master storage (real files)
-│   │   ├── train/
-│   │   │   ├── image001.jpg
-│   │   │   └── image002.jpg
-│   │   └── val/
-│   │       ├── image003.jpg
-│   │       └── image004.jpg
-│   └── annotations/
-│       └── master/
-│           └── annotations.json
-├── framework_configs/
-│   ├── coco/
-│   │   ├── data/
-│   │   │   ├── train/            # Symlinks to master images
-│   │   │   └── val/              # Symlinks to master images
-│   │   └── annotations/
-│   │       └── instances_train.json
-│   └── yolo/
-│       ├── images/
-│       │   ├── train/            # Symlinks to master images
-│       │   └── val/              # Symlinks to master images
-│       └── labels/
-│           ├── train/
-│           └── val/
-└── src/wildtrain/
-    ├── adapters/                  # Format converters
-    ├── converters/                # Input format converters
-    ├── validators/                # Format validators
-    └── pipeline/                  # Pipeline components
-```
+## Installation
 
-## 🚀 Quick Start
-
-### Installation
-
+### Basic Installation
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd wildtrain
+# Install with pip
+pip install wildtrain
 
-# Install dependencies
-uv sync
+# Or install with uv
+uv add wildtrain
 ```
 
-### Basic Usage
+### With DVC Support
+```bash
+# Install with DVC support
+pip install "wildtrain[dvc]"
+
+# For cloud storage support
+pip install "wildtrain[dvc]" "dvc[s3]"    # AWS S3
+pip install "wildtrain[dvc]" "dvc[gcs]"   # Google Cloud Storage
+pip install "wildtrain[dvc]" "dvc[azure]" # Azure Blob Storage
+```
+
+## Quick Start
+
+### 1. Basic Usage
 
 ```bash
 # Import a COCO dataset
-python main.py import /path/to/coco/dataset coco my_dataset
+wildtrain dataset import /path/to/annotations.json coco my_dataset
 
 # Import a YOLO dataset
-python main.py import /path/to/yolo/dataset yolo my_dataset
+wildtrain dataset import /path/to/data.yaml yolo my_dataset
 
 # List all datasets
-python main.py list
-
-# Get dataset information
-python main.py info my_dataset
+wildtrain dataset list
 
 # Export to framework format
-python main.py export my_dataset coco
-python main.py export my_dataset yolo
+wildtrain dataset export my_dataset coco
 ```
 
-## 📋 CLI Commands
+### 2. With Data Transformations
 
-### Import Dataset
 ```bash
-python main.py import <source_path> <format_type> <dataset_name> [--no-hints]
+# Import with augmentation
+wildtrain dataset import /path/to/data coco my_dataset --augment
+
+# Import with tiling
+wildtrain dataset import /path/to/data yolo my_dataset --tile
+
+# Import with both transformations
+wildtrain dataset import /path/to/data coco my_dataset --augment --tile
 ```
 
-- `source_path`: Path to the source dataset
-- `format_type`: Either 'coco' or 'yolo'
-- `dataset_name`: Name for the dataset in master storage
-- `--no-hints`: Disable validation hints
+### 3. With DVC Integration
 
-### List Datasets
 ```bash
-python main.py list
+# Setup DVC remote storage
+wildtrain dvc setup --storage-type local --storage-path ./dvc_storage
+
+# Import with DVC tracking
+wildtrain dataset import /path/to/data coco my_dataset --track-with-dvc
+
+# Check DVC status
+wildtrain dvc status
+
+# Pull data from remote
+wildtrain dvc pull
+
+# Push data to remote
+wildtrain dvc push
 ```
 
-Lists all available datasets in master storage with statistics.
+## CLI Commands
 
-### Dataset Information
+### Dataset Management
 ```bash
-python main.py info <dataset_name>
+# Import dataset
+wildtrain dataset import <source_path> <format> <dataset_name> [options]
+
+# List datasets
+wildtrain dataset list
+
+# Get dataset info
+wildtrain dataset info <dataset_name>
+
+# Export dataset
+wildtrain dataset export <dataset_name> <format>
+
+# Delete dataset
+wildtrain dataset delete <dataset_name>
 ```
 
-Shows detailed information about a specific dataset.
-
-### Export Framework Format
+### DVC Operations
 ```bash
-python main.py export <dataset_name> <framework>
+# Setup DVC
+wildtrain dvc setup [options]
+
+# Check status
+wildtrain dvc status
+
+# Pull data
+wildtrain dvc pull [dataset_name]
+
+# Push data
+wildtrain dvc push
+
+# Create pipeline
+wildtrain dvc pipeline <pipeline_name> [options]
+
+# Run pipeline
+wildtrain dvc run <pipeline_name>
 ```
 
-- `dataset_name`: Name of the dataset
-- `framework`: Target framework ('coco' or 'yolo')
-
-### Delete Dataset
+### Data Validation
 ```bash
-python main.py delete <dataset_name> [--force]
+# Validate dataset
+wildtrain validate <source_path> <format>
 ```
 
-- `dataset_name`: Name of the dataset to delete
-- `--force`: Force deletion without confirmation
+## Python API
 
-## 🔧 Workflow
+### Basic Usage
+```python
+from wildtrain.pipeline.data_pipeline import DataPipeline
 
-### 1. Data Validation
-The pipeline first validates your input data:
+# Initialize pipeline
+pipeline = DataPipeline("data")
 
-- **COCO**: Validates JSON structure, required fields, and image file existence
-- **YOLO**: Validates data.yaml structure, label files, and image paths
+# Import dataset
+result = pipeline.import_dataset(
+    source_path="/path/to/data",
+    source_format="coco",
+    dataset_name="my_dataset"
+)
 
-### 2. Master Format Conversion
-Validated data is converted to the master annotation format:
-
-```json
-{
-  "images": [
-    {
-      "id": 1,
-      "file_name": "image001.jpg",
-      "file_path": "/path/to/image001.jpg",
-      "width": 640,
-      "height": 480,
-      "split": "train"
-    }
-  ],
-  "annotations": [
-    {
-      "id": 1,
-      "image_id": 1,
-      "category_id": 1,
-      "bbox": [100, 100, 200, 150],
-      "type": "detection"
-    }
-  ],
-  "categories": [
-    {
-      "id": 1,
-      "name": "person"
-    }
-  ]
-}
+# List datasets
+datasets = pipeline.list_datasets()
 ```
 
-### 3. Framework-Specific Generation
-Using adapters, the pipeline generates framework-specific formats:
+### With DVC Integration
+```python
+from wildtrain.pipeline.data_pipeline import DataPipeline
+from wildtrain.pipeline.dvc_manager import DVCConfig, DVCStorageType
 
-- **COCO**: Creates COCO JSON annotations and symlinks to images
-- **YOLO**: Creates label files, data.yaml, and symlinks to images
+# Configure DVC
+config = DVCConfig(
+    storage_type=DVCStorageType.S3,
+    storage_path="s3://my-bucket/datasets"
+)
 
-## 🧪 Testing
+# Initialize pipeline with DVC
+pipeline = DataPipeline("data", enable_dvc=True, dvc_config=config)
 
-Run the test suite:
+# Import with DVC tracking
+result = pipeline.import_dataset(
+    source_path="/path/to/data",
+    source_format="coco",
+    dataset_name="my_dataset",
+    track_with_dvc=True
+)
+```
+
+## Configuration
+
+### DVC Storage Types
+
+#### Local Storage
+```bash
+wildtrain dvc setup --storage-type local --storage-path ./dvc_storage
+```
+
+#### AWS S3
+```bash
+wildtrain dvc setup --storage-type s3 --storage-path s3://my-bucket/datasets
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+```
+
+#### Google Cloud Storage
+```bash
+wildtrain dvc setup --storage-type gcs --storage-path gs://my-bucket/datasets
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+#### Azure Blob Storage
+```bash
+wildtrain dvc setup --storage-type azure --storage-path azure://my-container/datasets
+export AZURE_STORAGE_CONNECTION_STRING=your_connection_string
+```
+
+## Data Transformations
+
+### Augmentation
+```bash
+# Basic augmentation
+wildtrain dataset import data coco dataset --augment
+
+# Custom augmentation parameters
+wildtrain dataset import data coco dataset --augment \
+  --rotation -15 15 \
+  --probability 0.7 \
+  --brightness 0.8 1.2 \
+  --contrast 0.9 1.1 \
+  --noise 0.02
+```
+
+### Tiling
+```bash
+# Basic tiling
+wildtrain dataset import data coco dataset --tile
+
+# Custom tiling parameters
+wildtrain dataset import data coco dataset --tile \
+  --tile-size 512 \
+  --stride 256 \
+  --min-visibility 0.1 \
+  --max-negative-tiles 3
+```
+
+## Project Structure
+
+```
+project/
+├── data/                    # Master data storage
+│   ├── images/             # Image files
+│   └── annotations/        # Master annotations
+├── .dvc/                   # DVC configuration
+├── dvc.yaml               # Pipeline definitions
+└── .gitignore             # Git ignore rules
+```
+
+## Examples
+
+### Complete Workflow Example
+```bash
+# 1. Setup DVC
+wildtrain dvc setup --storage-type local
+
+# 2. Import dataset with transformations
+wildtrain dataset import /path/to/raw_data coco my_dataset \
+  --augment \
+  --tile \
+  --track-with-dvc
+
+# 3. Export for training
+wildtrain dataset export my_dataset yolo
+
+# 4. Check status
+wildtrain dvc status
+wildtrain dataset list
+```
+
+### Pipeline Example
+```yaml
+# dvc.yaml
+stages:
+  import:
+    cmd: wildtrain dataset import data/raw coco raw_dataset --track-with-dvc
+    deps:
+      - data/raw
+    outs:
+      - data/processed
+
+  augment:
+    cmd: wildtrain dataset transform raw_dataset --augment --output-name augmented_dataset
+    deps:
+      - data/processed
+    outs:
+      - data/augmented
+
+  export:
+    cmd: wildtrain dataset export augmented_dataset yolo
+    deps:
+      - data/augmented
+    outs:
+      - data/exports
+```
+
+## Testing
 
 ```bash
 # Run all tests
 uv run python -m pytest -v
 
-# Run specific test files
-uv run python -m pytest tests/test_validators.py -v
-uv run python -m pytest tests/test_pipeline.py -v
+# Run specific test file
+uv run python -m pytest tests/test_dvc_integration.py -v
+
+# Run with coverage
+uv run python -m pytest --cov=wildtrain tests/
 ```
 
-## 📊 Supported Formats
+## Documentation
 
-### Input Formats
-- **COCO**: Standard COCO JSON format with images and annotations
-- **YOLO**: YOLO format with data.yaml and label files
+- [DVC Integration Guide](docs/DVC_INTEGRATION.md)
+- [Transformation Documentation](docs/TRANSFORMATIONS.md)
+- [API Reference](docs/API.md)
 
-### Output Formats
-- **COCO**: Compatible with OpenMMLab and other COCO-based frameworks
-- **YOLO**: Compatible with Ultralytics YOLO and other YOLO-based frameworks
-
-## 🔍 Validation Features
-
-### COCO Validation
-- ✅ Required fields (images, annotations, categories)
-- ✅ Image file existence
-- ✅ Annotation consistency
-- ✅ Category mapping
-
-### YOLO Validation
-- ✅ data.yaml structure
-- ✅ Required fields (path, train, names)
-- ✅ Label file existence
-- ✅ Image file existence
-- ✅ Path resolution
-
-## 🛠️ Architecture
-
-### Core Components
-
-1. **DataPipeline**: Main orchestrator coordinating the workflow
-2. **MasterDataManager**: Manages master data storage and operations
-3. **FrameworkDataManager**: Creates framework-specific formats using symlinks
-4. **Validators**: Validate input data formats
-5. **Converters**: Convert input formats to master format
-6. **Adapters**: Convert master format to framework-specific formats
-
-### Key Features
-
-- **Symlink-based storage**: Efficient storage using symlinks to avoid duplication
-- **Validation with hints**: Helpful error messages and suggestions
-- **Framework agnostic**: Master format works with any framework
-- **Extensible**: Easy to add new formats and frameworks
-
-## 📝 Examples
-
-### Import COCO Dataset
-```bash
-python main.py import /path/to/coco_dataset coco my_coco_dataset
-```
-
-### Import YOLO Dataset
-```bash
-python main.py import /path/to/yolo_dataset yolo my_yolo_dataset
-```
-
-### Export for Training
-```bash
-# Export for OpenMMLab training
-python main.py export my_dataset coco
-
-# Export for YOLO training
-python main.py export my_dataset yolo
-```
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -254,10 +328,13 @@ python main.py export my_dataset yolo
 4. Add tests for new functionality
 5. Submit a pull request
 
-## 📄 License
+## License
 
-[Add your license information here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## Acknowledgments
 
-For issues and questions, please open an issue on GitHub.
+- [DVC](https://dvc.org/) for data versioning capabilities
+- [COCO](https://cocodataset.org/) for the annotation format
+- [YOLO](https://github.com/ultralytics/yolov5) for the annotation format
+- [Albumentations](https://albumentations.ai/) for data augmentation

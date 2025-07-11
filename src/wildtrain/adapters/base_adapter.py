@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
+
 class BaseAdapter(ABC):
     """
     Abstract base class for annotation format adapters.
     Defines the interface for loading, converting, and saving annotations.
     """
+
     def __init__(self, master_annotation_path: str):
         """
         Initialize the adapter with the path to the master annotation file.
@@ -39,4 +41,4 @@ class BaseAdapter(ABC):
             data (Any): The converted annotation data.
             output_path (str): Path to save the output file or directory.
         """
-        pass 
+        pass

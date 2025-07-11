@@ -2,13 +2,16 @@
 Tiling transformer for extracting tiles/patches from images and annotations.
 """
 
-from typing import Dict, Any, List, Tuple, Optional, Generator, Union
-import numpy as np
 import logging
-import torch
 import random
-from .base_transformer import BaseTransformer
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+
+import numpy as np
+import torch
+
 from ..config import TilingConfig
+from .base_transformer import BaseTransformer
+
 logger = logging.getLogger(__name__)
 
 
@@ -253,42 +256,40 @@ class TileUtils:
 class TilingTransformer(BaseTransformer):
     """
     Transformer for extracting tiles/patches from images and their annotations.
-    
+
     Uses TileUtils for efficient image tiling and provides annotation tiling functionality.
-    
+
     Supports:
     - Regular grid tiling with configurable stride
     - Square patches (tile_size x tile_size)
     - Annotation-aware tiling (filter tiles based on annotation content)
     - Efficient PyTorch-based tile extraction
     """
-    
+
     def __init__(self, config: Optional[TilingConfig] = None):
         """
         Initialize the tiling transformer.
-        
+
         Args:
             config: TilingConfig dataclass or configuration dictionary
         """
         config = config or TilingConfig()
         super().__init__(config)
 
-    
-    def transform(self, inputs:List[Dict[str, Any]])->List[Dict[str, Any]]:
-
+    def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         outputs = []
         for data in inputs:
             outputs.extend(self._transform_once(data))
         return outputs
-    
-    def _transform_once(self, inputs:Dict[str, Any])->List[Dict[str, Any]]:
+
+    def _transform_once(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Extract tiles from the image and annotations.
         """
 
-        image = inputs['image']
-        annotations = inputs.get('annotations', [])
-        image_info = inputs['info']
+        image = inputs["image"]
+        annotations = inputs.get("annotations", [])
+        image_info = inputs["info"]
 
         # Convert numpy image to torch tensor
         if len(image.shape) == 3:
@@ -296,113 +297,136 @@ class TilingTransformer(BaseTransformer):
             image_tensor = torch.from_numpy(image).permute(2, 0, 1).float()
         else:
             image_tensor = torch.from_numpy(image).unsqueeze(0).float()
-        
-        if image_info.get('file_name') is None:
+
+        if image_info.get("file_name") is None:
             logger.warning("Image info does not contain file name, using 'unknown'")
-            file_name = 'unknown'
+            file_name = "unknown"
         else:
-            file_name = image_info['file_name']
-        
+            file_name = image_info["file_name"]
+
         # Extract tiles using TileUtils
         tiles, offset_info = TileUtils.get_patches_and_offset_info(
-            image_tensor,
-            self.config.tile_size,
-            self.config.stride,
-            file_name=file_name
+            image_tensor, self.config.tile_size, self.config.stride, file_name=file_name
         )
-        
+
         # Convert tiles back to numpy and process annotations
         empty_tiles = []
         non_empty_tiles = []
-        
+
         for i in range(tiles.shape[0]):
             # Convert tile back to numpy (CHW to HWC)
             tile_image = tiles[i].permute(1, 2, 0).numpy().astype(np.uint8)
-            
+
             # Get tile offset information
-            x_offset = offset_info['x_offset'][i]
-            y_offset = offset_info['y_offset'][i]
-            x_end = offset_info['x_end'][i]
-            y_end = offset_info['y_end'][i]
-            
+            x_offset = offset_info["x_offset"][i]
+            y_offset = offset_info["y_offset"][i]
+            x_end = offset_info["x_end"][i]
+            y_end = offset_info["y_end"][i]
+
             # Extract annotations for this tile
             tile_annotation = self._extract_tile_annotations(
                 annotations, x_offset, y_offset, x_end, y_end
             )
-            
+
             # Create tile info
             tile_info = {
-                'tile_id': f"{file_name}_tile_{i}_{x_offset}_{y_offset}",
-                'tile_coords': {
-                    'x_offset': x_offset,
-                    'y_offset': y_offset,
-                    'x_end': x_end,
-                    'y_end': y_end
+                "tile_id": f"{file_name}_tile_{i}_{x_offset}_{y_offset}",
+                "tile_coords": {
+                    "x_offset": x_offset,
+                    "y_offset": y_offset,
+                    "x_end": x_end,
+                    "y_end": y_end,
                 },
-                'tile_size': {
-                    'width': tile_image.shape[2],
-                    'height': tile_image.shape[1]
+                "tile_size": {
+                    "width": tile_image.shape[2],
+                    "height": tile_image.shape[1],
                 },
-                'original_image_info': image_info,
-                'tile_index': i
+                "original_image_info": image_info,
+                "tile_index": i,
             }
-            
+
             # Check if tile meets criteria and categorize
             if tile_annotation:  # Non-empty tile
-                non_empty_tiles.append({'image': tile_image, 'annotations': tile_annotation, 'info': tile_info})
+                non_empty_tiles.append(
+                    {
+                        "image": tile_image,
+                        "annotations": tile_annotation,
+                        "info": tile_info,
+                    }
+                )
             else:  # Empty tile
-                empty_tiles.append({'image': tile_image, 'annotations': tile_annotation, 'info': tile_info})
-        
+                empty_tiles.append(
+                    {
+                        "image": tile_image,
+                        "annotations": tile_annotation,
+                        "info": tile_info,
+                    }
+                )
+
         # Sample tiles based on the empty/non-empty ratio
         selected_tiles = self._sample_tiles_with_ratio(empty_tiles, non_empty_tiles)
-            
+
         return selected_tiles
-    
-    def _extract_tile_annotations(self, annotations: List[Dict[str, Any]], 
-                                 x_offset: int, y_offset: int, x_end: int, y_end: int) -> List[Dict[str, Any]]:
+
+    def _extract_tile_annotations(
+        self,
+        annotations: List[Dict[str, Any]],
+        x_offset: int,
+        y_offset: int,
+        x_end: int,
+        y_end: int,
+    ) -> List[Dict[str, Any]]:
         """Extract annotations that fall within the tile bounds."""
         tile_annotations = []
-        
+
         for annotation in annotations:
             # Handle bounding boxes
-            if 'bbox' in annotation:
-                bbox = annotation['bbox']
+            if "bbox" in annotation:
+                bbox = annotation["bbox"]
                 if self._bbox_intersects_tile(bbox, x_offset, y_offset, x_end, y_end):
-                    tile_bbox, ratio = self._clip_bbox_to_tile(bbox, x_offset, y_offset, x_end, y_end)
+                    tile_bbox, ratio = self._clip_bbox_to_tile(
+                        bbox, x_offset, y_offset, x_end, y_end
+                    )
                     tile_annotation = annotation.copy()
-                    tile_annotation['bbox'] = tile_bbox
+                    tile_annotation["bbox"] = tile_bbox
                     if ratio > self.config.min_visibility:
                         tile_annotations.append(tile_annotation)
             # Handle segmentations
-            elif 'segmentation' in annotation:
+            elif "segmentation" in annotation:
                 tile_segmentation, ratio = self._clip_segmentation_to_tile(
-                    annotation['segmentation'], x_offset, y_offset, x_end, y_end
+                    annotation["segmentation"], x_offset, y_offset, x_end, y_end
                 )
                 if tile_segmentation and ratio > self.config.min_visibility:
                     tile_annotation = annotation.copy()
-                    tile_annotation['segmentation'] = tile_segmentation
+                    tile_annotation["segmentation"] = tile_segmentation
                     tile_annotations.append(tile_annotation)
             else:
                 raise ValueError(f"Annotation type {type(annotation)} not supported")
-        
+
         return tile_annotations
-    
-    def _bbox_intersects_tile(self, bbox: List[float], x_offset: int, y_offset: int, 
-                             x_end: int, y_end: int) -> bool:
+
+    def _bbox_intersects_tile(
+        self, bbox: List[float], x_offset: int, y_offset: int, x_end: int, y_end: int
+    ) -> bool:
         """Check if bounding box intersects with tile."""
         bbox_x, bbox_y, bbox_w, bbox_h = bbox
         bbox_x_end = bbox_x + bbox_w
         bbox_y_end = bbox_y + bbox_h
-        
+
         # Check intersection
-        return (bbox_x < x_end and bbox_x_end > x_offset and
-                bbox_y < y_end and bbox_y_end > y_offset)
-    
-    def _clip_bbox_to_tile(self, bbox: List[float], x_offset: int, y_offset: int, 
-                           x_end: int, y_end: int) -> Tuple[List[float], float]:
+        return (
+            bbox_x < x_end
+            and bbox_x_end > x_offset
+            and bbox_y < y_end
+            and bbox_y_end > y_offset
+        )
+
+    def _clip_bbox_to_tile(
+        self, bbox: List[float], x_offset: int, y_offset: int, x_end: int, y_end: int
+    ) -> Tuple[List[float], float]:
         """Clip bounding box coordinates to tile bounds."""
         bbox_x, bbox_y, bbox_w, bbox_h = bbox
-        
+
         # Clip to tile bounds
         new_x = max(0, bbox_x - x_offset)
         new_y = max(0, bbox_y - y_offset)
@@ -410,67 +434,77 @@ class TilingTransformer(BaseTransformer):
         new_h = min(bbox_h, y_end - bbox_y)
 
         # Calculate ratio of clipped area to original area
-        ratio =  (new_w * new_h) / (bbox_w * bbox_h)
-        
+        ratio = (new_w * new_h) / (bbox_w * bbox_h)
+
         # Return clipped bbox and ratio
         return [new_x, new_y, new_w, new_h], ratio
-    
-    #TODO: check if this is correct
-    def _clip_segmentation_to_tile(self, segmentation: List[List[float]], 
-                                   x_offset: int, y_offset: int, x_end: int, y_end: int) -> Tuple[List[List[float]], float]:
+
+    # TODO: check if this is correct
+    def _clip_segmentation_to_tile(
+        self,
+        segmentation: List[List[float]],
+        x_offset: int,
+        y_offset: int,
+        x_end: int,
+        y_end: int,
+    ) -> Tuple[List[List[float]], float]:
         """Clip segmentation coordinates to tile bounds."""
         tile_segmentation = []
         ratio = ...
-        
+
         for polygon in segmentation:
             clipped_polygon = []
             for i in range(0, len(polygon), 2):
-                px, py = polygon[i], polygon[i+1]
-                
+                px, py = polygon[i], polygon[i + 1]
+
                 # Transform to tile coordinates
                 tile_px = px - x_offset
                 tile_py = py - y_offset
-                
+
                 # Clip to tile bounds
                 tile_px = max(0, min(x_end - x_offset, tile_px))
                 tile_py = max(0, min(y_end - y_offset, tile_py))
-                
+
                 clipped_polygon.extend([tile_px, tile_py])
-            
+
             if len(clipped_polygon) >= 6:  # At least 3 points
                 tile_segmentation.append(clipped_polygon)
-        
-        return tile_segmentation,ratio
-    
-    def _sample_tiles_with_ratio(self, empty_tiles: List[Dict[str, Any]], non_empty_tiles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+        return tile_segmentation, ratio
+
+    def _sample_tiles_with_ratio(
+        self, empty_tiles: List[Dict[str, Any]], non_empty_tiles: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
         Sample tiles maintaining the specified ratio between empty and non-empty tiles.
-        
+
         Args:
             empty_tiles: List of (image, annotations, info) tuples for empty tiles
             non_empty_tiles: List of (image, annotations, info) tuples for non-empty tiles
-            
+
         Returns:
             List of selected tile tuples
         """
         ratio = self.config.negative_positive_ratio
-        
+
         # Calculate how many tiles of each type to sample
         if non_empty_tiles:
             # If we have non-empty tiles, calculate based on ratio
             max_empty = min(len(empty_tiles), int(len(empty_tiles) * ratio))
         else:
             # If no non-empty tiles, just take empty tiles up to max
-            max_empty = min(len(empty_tiles), self.config.max_negative_tiles_in_negative_image)
-        
+            max_empty = min(
+                len(empty_tiles), self.config.max_negative_tiles_in_negative_image
+            )
+
         # Sample tiles
         selected_tiles = []
-        
+
         # Add non-empty tiles
         selected_tiles.extend(non_empty_tiles)
-        
+
         # Add empty tiles
         random.shuffle(empty_tiles)
         selected_tiles.extend(empty_tiles[:max_empty])
-                
-        return selected_tiles 
+
+        return selected_tiles

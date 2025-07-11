@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 ROOT = Path(__file__).parents[2]
+
 
 @dataclass
 class AugmentationConfig:
@@ -33,6 +34,7 @@ class AugmentationConfig:
         if self.noise_std < 0:
             raise ValueError("Noise standard deviation must be non-negative")
 
+
 @dataclass
 class TilingConfig:
     tile_size: int = 512
@@ -46,7 +48,9 @@ class TilingConfig:
         self.tile_size = int(self.tile_size)
         self.stride = int(self.stride)
         self.min_visibility = float(self.min_visibility)
-        self.max_negative_tiles_in_negative_image = int(self.max_negative_tiles_in_negative_image)
+        self.max_negative_tiles_in_negative_image = int(
+            self.max_negative_tiles_in_negative_image
+        )
         self.negative_positive_ratio = float(self.negative_positive_ratio)
         self._filter_empty_tiles = self.negative_positive_ratio > 0
 
@@ -54,14 +58,16 @@ class TilingConfig:
         if self.tile_size <= 0:
             raise ValueError("Tile size must be greater than 0")
         if self.stride <= 0 or self.stride > self.tile_size:
-            raise ValueError("Stride must be greater than 0 and less than or equal to tile size")
+            raise ValueError(
+                "Stride must be greater than 0 and less than or equal to tile size"
+            )
         if self.min_visibility < 0 or self.min_visibility > 1:
             raise ValueError("Minimum visibility must be between 0 and 1")
         if self.max_negative_tiles_in_negative_image <= 0:
             raise ValueError("Maximum negative tiles must be greater than 0")
         if self.negative_positive_ratio < 0:
             raise ValueError("Negative positive ratio must be non-negative")
-       
+
 
 @dataclass
 class TransformationConfig:

@@ -1,1 +1,1 @@
-# Converters package for converting between annotation formats 
+# Converters package for converting between annotation formats
