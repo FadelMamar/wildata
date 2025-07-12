@@ -89,7 +89,8 @@ class AugmentationTransformer(BaseTransformer):
         self._validate_inputs(inputs)
         outputs = []
         for data in inputs:
-            outputs.extend(self._transform_once(data))
+            for _ in range(self.config.num_transforms):
+                outputs.extend(self._transform_once(data))
         return outputs
 
     def _transform_once(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:

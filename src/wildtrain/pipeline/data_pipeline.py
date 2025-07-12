@@ -96,67 +96,23 @@ class DataPipeline:
                 f"Importing dataset from {source_path} ({source_format} format)"
             )
 
-            # Validate source format
-            if source_format not in ["coco", "yolo"]:
-                print("[DEBUG] Unsupported source format")
-                return {
-                    "success": False,
-                    "error": f"Unsupported source format: {source_format}",
-                    "validation_errors": [],
-                    "hints": ["Supported formats: coco, yolo"],
-                }
+            # Load and validate dataset
+            dataset_info, split_data = self._load_and_validate_dataset(
+                source_path, source_format, dataset_name, bbox_tolerance
+            )
 
-            # Create validator and validate dataset
-            if source_format == "coco":
-                # For COCO, source_path should be the annotation file path
-                validator = COCOValidator(source_path)
-                is_valid, errors, warnings = validator.validate(
-                    bbox_tolerance=bbox_tolerance
-                )
-                if not is_valid:
-                    print("[DEBUG] COCO validation failed")
-                    return {
-                        "success": False,
-                        "error": "Validation failed",
-                        "validation_errors": errors,
-                        "hints": warnings,
-                    }
-
-                # For COCO, we can store directly in COCO format
-                # Load COCO data and convert to split-based structure
-                dataset_info, split_data = self._load_coco_to_split_format(
-                    source_path, dataset_name
-                )
-
-            elif source_format == "yolo":
-                # For YOLO, source_path should be the data.yaml file path
-                validator = YOLOValidator(source_path)
-                is_valid, errors, warnings = validator.validate()
-                if not is_valid:
-                    print("[DEBUG] YOLO validation failed")
-                    return {
-                        "success": False,
-                        "error": "Validation failed",
-                        "validation_errors": errors,
-                        "hints": warnings,
-                    }
-
-                # Create converter and convert YOLO to COCO format
-                converter = YOLOToMasterConverter(source_path)
-                converter.load_yolo_data()
-                dataset_info, split_data = converter.convert(dataset_name)
-            else:
-                raise ValueError(f"Unsupported source format: {source_format}")
-
-            # Apply transformations if requested
-            if apply_transformations:
-                print("[DEBUG] Applying transformations")
-                split_data = self._apply_transformations_to_dataset(split_data)
-
-            # Store dataset using data manager
+            # Store dataset using data manager with transformation options
             print("[DEBUG] Storing dataset with data manager")
             dataset_info_path = self.data_manager.store_dataset(
-                dataset_name, dataset_info, split_data, track_with_dvc=track_with_dvc
+                dataset_name=dataset_name,
+                dataset_info=dataset_info,
+                split_data=split_data,
+                track_with_dvc=track_with_dvc,
+                transformation_pipeline=self.transformation_pipeline
+                if apply_transformations
+                else None,
+                processing_mode="standard",
+                save_transformation_metadata=False,
             )
 
             # Create framework formats using framework data manager
@@ -186,6 +142,104 @@ class DataPipeline:
                 "hints": [],
             }
 
+    def import_dataset_with_options(
+        self,
+        source_path: str,
+        source_format: str,
+        dataset_name: str,
+        processing_mode: str = "standard",  # "standard", "streaming", "batch"
+        apply_transformations: bool = False,
+        track_with_dvc: bool = False,
+        bbox_tolerance: int = 5,
+        save_transformation_metadata: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Import dataset with enhanced transformation-storage integration.
+
+        Args:
+            source_path: Path to source dataset
+            source_format: Format of source dataset ('coco' or 'yolo')
+            dataset_name: Name for the dataset in COCO format
+            processing_mode: Processing mode ('standard', 'streaming', 'batch')
+            apply_transformations: Whether to apply transformations during import
+            track_with_dvc: Whether to track the dataset with DVC
+            bbox_tolerance: Tolerance for bbox validation
+            save_transformation_metadata: Whether to save transformation metadata
+
+        Returns:
+            Dictionary with import result information
+        """
+        print(
+            f"[DEBUG] Starting import_dataset_with_options: {source_path}, {source_format}, {dataset_name}, mode={processing_mode}"
+        )
+
+        try:
+            self.logger.info(
+                f"Importing dataset from {source_path} ({source_format} format) with {processing_mode} mode"
+            )
+
+            # Load and validate dataset
+            dataset_info, split_data = self._load_and_validate_dataset(
+                source_path, source_format, dataset_name, bbox_tolerance
+            )
+
+            if not dataset_info or not split_data:
+                return {
+                    "success": False,
+                    "error": "Failed to load and validate dataset",
+                    "validation_errors": [],
+                    "hints": [],
+                }
+
+            # Store dataset using data manager with transformation options
+            print("[DEBUG] Storing dataset with data manager")
+            dataset_info_path = self.data_manager.store_dataset(
+                dataset_name=dataset_name,
+                dataset_info=dataset_info,
+                split_data=split_data,
+                track_with_dvc=track_with_dvc,
+                transformation_pipeline=self.transformation_pipeline
+                if apply_transformations
+                else None,
+                processing_mode=processing_mode
+                if apply_transformations
+                else "standard",
+                save_transformation_metadata=save_transformation_metadata
+                if apply_transformations
+                else False,
+            )
+
+            # Create framework formats
+            print("[DEBUG] Creating framework formats")
+            framework_paths = self.framework_data_manager.create_framework_formats(
+                dataset_name
+            )
+
+            self.logger.info(
+                f"Successfully imported dataset '{dataset_name}' with {processing_mode} mode"
+            )
+            return {
+                "success": True,
+                "dataset_name": dataset_name,
+                "dataset_info_path": dataset_info_path,
+                "framework_paths": framework_paths,
+                "processing_mode": processing_mode,
+                "dvc_tracked": track_with_dvc
+                and self.data_manager.dvc_manager is not None,
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error importing dataset: {str(e)}")
+            print(
+                f"[DEBUG] Exception in import_dataset_with_options: {traceback.format_exc()}"
+            )
+            return {
+                "success": False,
+                "error": str(e),
+                "validation_errors": [],
+                "hints": [],
+            }
+
     def _load_coco_to_split_format(
         self, coco_annotation_path: str, dataset_name: str
     ) -> tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
@@ -205,7 +259,8 @@ class DataPipeline:
 
         image_dir = Path(coco_annotation_path).parents[1] / "images"
 
-        assert image_dir.exists(), f"The expected format "
+        if not image_dir.exists():
+            raise FileNotFoundError(f"The expected format {image_dir}")
 
         # Extract dataset info
         dataset_info = {
@@ -250,6 +305,51 @@ class DataPipeline:
 
         return dataset_info, split_data
 
+    def _load_and_validate_dataset(
+        self,
+        source_path: str,
+        source_format: str,
+        dataset_name: str,
+        bbox_tolerance: int,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Dict[str, Any]]]]:
+        """
+        Load and validate dataset based on source format.
+
+        Returns:
+            Tuple of (dataset_info, split_data) or (None, None) if validation fails
+        """
+        if source_format == "coco":
+            # For COCO, source_path should be the annotation file path
+            validator = COCOValidator(source_path)
+            is_valid, errors, warnings = validator.validate(
+                bbox_tolerance=bbox_tolerance
+            )
+            if not is_valid:
+                print("[DEBUG] COCO validation failed")
+                return None, None
+
+            # Load COCO data and convert to split-based structure
+            dataset_info, split_data = self._load_coco_to_split_format(
+                source_path, dataset_name
+            )
+
+        elif source_format == "yolo":
+            # For YOLO, source_path should be the data.yaml file path
+            validator = YOLOValidator(source_path)
+            is_valid, errors, warnings = validator.validate()
+            if not is_valid:
+                print("[DEBUG] YOLO validation failed")
+                return None, None
+
+            # Create converter and convert YOLO to COCO format
+            converter = YOLOToMasterConverter(source_path)
+            converter.load_yolo_data()
+            dataset_info, split_data = converter.convert(dataset_name)
+        else:
+            raise ValueError(f"Unsupported source format: {source_format}")
+
+        return dataset_info, split_data
+
     def _determine_split_from_image(
         self, image: Dict[str, Any], annotation_path: str
     ) -> str:
@@ -276,69 +376,6 @@ class DataPipeline:
             return "test"
         else:
             return "train"
-
-    def _apply_transformations_to_dataset(
-        self, split_data: Dict[str, Dict[str, Any]]
-    ) -> Dict[str, Dict[str, Any]]:
-        """
-        Apply transformations to all images and annotations in the dataset.
-
-        Args:
-            split_data: Dictionary mapping split names to COCO format data
-
-        Returns:
-            Transformed split data
-        """
-        transformed_split_data = {}
-
-        for split_name, split_coco_data in tqdm(
-            split_data.items(), desc="Applying transformations to dataset"
-        ):
-            transformed_images = []
-            transformed_annotations = []
-
-            for image_info in split_coco_data["images"]:
-                # Load image
-                image_path = Path(image_info["file_name"])
-                if not Path(image_path).exists():
-                    self.logger.warning(f"Could not load image: {image_path}")
-                    continue
-                # Get annotations for this image
-                image_annotations = [
-                    ann
-                    for ann in split_coco_data["annotations"]
-                    if ann["image_id"] == image_info["id"]
-                ]
-                image = cv2.imread(str(image_path))
-
-                # Apply transformations
-                try:
-                    inputs = {
-                        "image": image,
-                        "annotations": image_annotations,
-                        "info": image_info,
-                    }
-
-                    transformed_data = self.transformation_pipeline.transform(inputs)
-
-                    for data in transformed_data:
-                        transformed_images.extend(data["image"])
-                        transformed_annotations.extend(data.get("annotations", []))
-
-                except Exception as e:
-                    print(
-                        f"Error transforming image {image_info['file_name']}: {str(e)}"
-                    )
-                    continue
-
-            # Create transformed split data
-            transformed_split_data[split_name] = {
-                "images": transformed_images,
-                "annotations": transformed_annotations,
-                "categories": split_coco_data.get("categories", []),
-            }
-
-        return transformed_split_data
 
     def export_dataset(
         self, dataset_name: str, target_format: str, target_path: str
@@ -377,8 +414,6 @@ class DataPipeline:
     ) -> bool:
         """Export dataset to COCO format."""
         try:
-            import json
-
             target_path_obj = Path(target_path)
             target_path_obj.mkdir(parents=True, exist_ok=True)
 

@@ -6,10 +6,16 @@ import json
 import logging
 import os
 import shutil
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import cv2
+import numpy as np
+from tqdm import tqdm
+
 from ..logging_config import get_logger
+from ..transformations.transformation_pipeline import TransformationPipeline
 from .dvc_manager import DVCConfig, DVCManager, DVCStorageType
 from .path_manager import PathManager
 
@@ -64,20 +70,73 @@ class DataManager:
         dataset_info: Dict[str, Any],
         split_data: Dict[str, Dict[str, Any]],
         track_with_dvc: bool = False,
+        transformation_pipeline: Optional[TransformationPipeline] = None,
+        processing_mode: str = "standard",
+        save_transformation_metadata: bool = True,
     ) -> str:
         """
         Store a dataset in COCO format with split-based organization.
+
+        This method can handle different processing modes:
+        - "standard": Load all data, transform in memory, save everything at once
+        - "streaming": Process one image at a time, save immediately
+        - "batch": Process images in small batches for memory efficiency
 
         Args:
             dataset_name: Name of the dataset
             dataset_info: Common dataset metadata (classes, version, etc.)
             split_data: Dictionary mapping split names to COCO format data
             track_with_dvc: Whether to track the dataset with DVC
+            transformation_pipeline: Optional transformation pipeline to apply
+            processing_mode: Processing mode ('standard', 'streaming', 'batch')
+            save_transformation_metadata: Whether to save transformation metadata
 
         Returns:
             Path to the stored dataset info file
         """
 
+        # If no transformation pipeline, use standard storage
+        if transformation_pipeline is None:
+            return self._store_dataset_standard(
+                dataset_name, dataset_info, split_data, track_with_dvc
+            )
+
+        # Apply transformations based on processing mode
+        elif processing_mode == "streaming":
+            return self.store_dataset_with_batch_transformation(
+                dataset_name,
+                dataset_info,
+                split_data,
+                transformation_pipeline,
+                track_with_dvc,
+                save_transformation_metadata,
+                batch_size=1,
+            )
+        elif processing_mode == "batch":
+            print("Applying batch transformation")
+            return self.store_dataset_with_batch_transformation(
+                dataset_name,
+                dataset_info,
+                split_data,
+                transformation_pipeline,
+                track_with_dvc,
+                save_transformation_metadata,
+                batch_size=10,
+            )
+
+    def _setup_dataset_storage(
+        self, dataset_name: str, dataset_info: Dict[str, Any]
+    ) -> str:
+        """
+        Common setup for dataset storage.
+
+        Args:
+            dataset_name: Name of the dataset
+            dataset_info: Dataset metadata
+
+        Returns:
+            Path to the dataset info file
+        """
         self.path_manager.ensure_directories(dataset_name)
 
         # Store dataset info
@@ -85,27 +144,16 @@ class DataManager:
         with open(dataset_info_file, "w") as f:
             json.dump(dataset_info, f, indent=2)
 
-        # Store each split
-        for split_name, split_coco_data in split_data.items():
-            # Store split annotations
-            split_annotations_file = (
-                self.path_manager.get_dataset_split_annotations_file(
-                    dataset_name, split_name
-                )
-            )
+        return str(dataset_info_file)
 
-            # Copy images for this split
-            split_coco_data = self._copy_images_for_split(
-                dataset_name, split_name, split_coco_data
-            )
+    def _track_with_dvc(self, dataset_name: str) -> None:
+        """
+        Common DVC tracking logic.
 
-            with open(split_annotations_file, "w") as f:
-                json.dump(split_coco_data, f, indent=2)
-
-        self.logger.info(f"Stored dataset '{dataset_name}' in COCO format")
-
-        # Track with DVC if enabled
-        if track_with_dvc and self.dvc_manager:
+        Args:
+            dataset_name: Name of the dataset to track
+        """
+        if self.dvc_manager:
             try:
                 dataset_path = self.path_manager.get_dataset_dir(dataset_name)
                 if self.dvc_manager.add_data_to_dvc(dataset_path, dataset_name):
@@ -117,13 +165,322 @@ class DataManager:
             except Exception as e:
                 self.logger.error(f"Error tracking dataset with DVC: {e}")
 
+    def _load_transform_one_image(
+        self,
+        image_info: Dict[str, Any],
+        split_coco_data: Dict[str, Any],
+        transformation_pipeline: Optional[TransformationPipeline] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Process a single image with optional transformations.
+
+        Args:
+            image_info: Image metadata
+            split_coco_data: Split data containing annotations
+            transformation_pipeline: Optional transformation pipeline
+
+        Returns:
+            Dictionary with processed data or None if processing failed
+        """
+        # Load image
+        image_path = Path(image_info["file_name"])
+        if not image_path.exists():
+            print(f"Could not load image: {image_path}")
+            return None
+
+        # Get annotations for this image
+        image_annotations = [
+            ann
+            for ann in split_coco_data["annotations"]
+            if ann["image_id"] == image_info["id"]
+        ]
+
+        image = cv2.imread(str(image_path))
+        # If no transformation pipeline, return original data
+        if transformation_pipeline is None:
+            return {
+                "image": image,
+                "annotations": image_annotations,
+                "info": image_info,
+                "transformed": False,
+            }
+
+        # Apply transformations
+        try:
+            inputs = {
+                "image": image,
+                "annotations": image_annotations,
+                "info": image_info,
+            }
+            transformed_data = transformation_pipeline.transform(inputs)
+            return {"transformed_data": transformed_data, "transformed": True}
+
+        except Exception as e:
+            self.logger.error(
+                f"Error transforming image {image_info['file_name']}: {str(e)}"
+            )
+            return None
+
+    def _save_coco_json(
+        self, dataset_name: str, split_name: str, split_data_to_store: Dict[str, Any]
+    ) -> str:
+        """
+        Save split data to file.
+
+        Args:
+            dataset_name: Name of the dataset
+            split_name: Name of the split
+            split_data_to_store: Data to store
+
+        Returns:
+            Path to the saved annotations file
+        """
+        split_annotations_file = self.path_manager.get_dataset_split_annotations_file(
+            dataset_name, split_name
+        )
+        with open(split_annotations_file, "w") as f:
+            json.dump(split_data_to_store, f, indent=2)
+
+        return str(split_annotations_file)
+
+    def _get_transformation_metadata(
+        self, transformation_pipeline: TransformationPipeline
+    ) -> Dict[str, Any]:
+        """
+        Get transformation metadata.
+
+        Args:
+            transformation_pipeline: Transformation pipeline
+
+        Returns:
+            Transformation metadata dictionary
+        """
+        return {
+            "pipeline_info": transformation_pipeline.get_pipeline_info(),
+            "transformation_history": transformation_pipeline.get_transformation_history(),
+        }
+
+    def _store_dataset_standard(
+        self,
+        dataset_name: str,
+        dataset_info: Dict[str, Any],
+        split_data: Dict[str, Dict[str, Any]],
+        track_with_dvc: bool = False,
+    ) -> str:
+        """
+        Store dataset without transformations (original method).
+        """
+        dataset_info_file = self._setup_dataset_storage(dataset_name, dataset_info)
+
+        # Store each split
+        for split_name, split_coco_data in split_data.items():
+            # Store split annotations
+            split_annotations_file = (
+                self.path_manager.get_dataset_split_annotations_file(
+                    dataset_name, split_name
+                )
+            )
+
+            # Copy images for this split & Update the file path in the annotations
+            split_coco_data = self._copy_images_for_split(
+                dataset_name, split_name, split_coco_data
+            )
+
+            with open(split_annotations_file, "w") as f:
+                json.dump(split_coco_data, f, indent=2)
+
+        self.logger.info(f"Stored dataset '{dataset_name}' in COCO format")
+
+        # Track with DVC if enabled
+        if track_with_dvc and self.dvc_manager:
+            self._track_with_dvc(dataset_name)
+
         return str(dataset_info_file)
+
+    def store_dataset_with_batch_transformation(
+        self,
+        dataset_name: str,
+        dataset_info: Dict[str, Any],
+        split_data: Dict[str, Dict[str, Any]],
+        transformation_pipeline: TransformationPipeline,
+        track_with_dvc: bool = False,
+        save_transformation_metadata: bool = True,
+        batch_size: int = 10,
+    ) -> str:
+        """
+        Store dataset with batch transformation processing.
+
+        This method processes images in small batches to balance memory usage
+        and performance for medium-sized datasets.
+
+        Args:
+            dataset_name: Name of the dataset
+            dataset_info: Common dataset metadata (classes, version, etc.)
+            split_data: Dictionary mapping split names to COCO format data
+            transformation_pipeline: Transformation pipeline to apply
+            track_with_dvc: Whether to track the dataset with DVC
+            save_transformation_metadata: Whether to save transformation metadata
+            batch_size: Number of images to process in each batch
+
+        Returns:
+            Path to the stored dataset info file
+        """
+
+        dataset_info_file = self._setup_dataset_storage(dataset_name, dataset_info)
+
+        # Process each split
+        batch_data_to_store = []
+        for split_name, split_coco_data in split_data.items():
+            self.logger.info(
+                f"Processing split: {split_name} with batch transformation"
+            )
+
+            # Initialize storage for this split
+            split_images_dir = self.path_manager.get_dataset_split_images_dir(
+                dataset_name, split_name
+            )
+            split_images_dir.mkdir(parents=True, exist_ok=True)
+
+            # Process images in batches
+            images_infos = split_coco_data["images"]
+            for i in tqdm(
+                range(0, len(images_infos), batch_size),
+                desc=f"Processing batches for {split_name}",
+            ):
+                batch_images_infos = images_infos[i : i + batch_size]
+                batch_data = self._process_single_batch(
+                    batch_images_infos,
+                    split_coco_data,
+                    dataset_name,
+                    split_images_dir,
+                    transformation_pipeline,
+                )
+                batch_data_to_store.append(batch_data)
+
+        # merge split data
+        split_data_to_store = {
+            "annotations": [],
+            "categories": split_coco_data.get("categories", []),
+            "images": [],
+        }
+        for data in batch_data_to_store:
+            split_data_to_store["annotations"].extend(data["annotations"])
+            split_data_to_store["images"].extend(data["images"])
+
+        if save_transformation_metadata:
+            transformation_metadata = {
+                "pipeline_info": transformation_pipeline.get_pipeline_info(),
+                "transformation_history": transformation_pipeline.get_transformation_history(),
+            }
+            split_data_to_store["transformation_metadata"] = transformation_metadata
+
+        # Save split data using helper method
+        self._save_coco_json(dataset_name, split_name, split_data_to_store)
+
+        self.logger.info(f"Stored dataset '{dataset_name}' with batch transformation")
+
+        # Track with DVC if enabled
+        if track_with_dvc and self.dvc_manager:
+            self._track_with_dvc(dataset_name)
+
+        return str(dataset_info_file)
+
+    def _process_single_batch(
+        self,
+        batch_images_infos: List[Dict[str, Any]],
+        split_coco_data: Dict[str, Any],
+        dataset_name: str,
+        split_images_dir: Path,
+        transformation_pipeline: Optional[TransformationPipeline] = None,
+    ) -> Dict[str, Any]:
+        """
+        Process a single batch of images.
+        """
+        transformed_images = []
+        transformed_annotations = []
+        transformed_image_infos = []
+
+        # process in batch
+        for image_info in batch_images_infos:
+            # Process image using helper method
+            result = self._load_transform_one_image(
+                image_info, split_coco_data, transformation_pipeline
+            )
+
+            if result is None:
+                continue
+
+            if result["transformed"]:
+                # Handle transformed data
+                for data in result["transformed_data"]:
+                    transformed_images.append(data["image"])
+                    transformed_annotations.extend(data["annotations"])
+                    transformed_image_infos.extend(data["info"])
+            else:
+                # Handle original data (no transformations)
+                transformed_images.append(result["image"])
+                transformed_annotations.extend(result["annotations"])
+                transformed_image_infos.extend([result["info"]])
+
+        # Store split data
+        split_data_to_store = {
+            "annotations": transformed_annotations,
+            "categories": split_coco_data.get("categories", []),
+            "images": transformed_image_infos,
+        }
+
+        for image_data, image_info in zip(transformed_images, transformed_image_infos):
+            self._copy_or_save_one_image(
+                image_info,
+                dataset_name=dataset_name,
+                split_images_dir=split_images_dir,
+                image_data=image_data,
+            )
+
+        return split_data_to_store
+
+    def _copy_or_save_one_image(
+        self,
+        image_info: Dict[str, Any],
+        split_images_dir: Path,
+        dataset_name: str,
+        image_data: Optional[np.ndarray] = None,
+    ) -> Optional[str]:
+        # Extract original image path
+        original_path = image_info.get("file_name", "")
+        if not original_path:
+            print(f"Image file_name is not set for image {image_info}")
+            return None
+
+        # Try to find the image file
+        original_file = Path(original_path)
+        if (not original_file.exists()) and (image_data is None):
+            # Try relative to the annotation file directory
+            annotation_dir = self.path_manager.get_dataset_annotations_dir(dataset_name)
+            original_file = annotation_dir.parent / original_path
+            if not original_file.exists():
+                print(f"Image file not found: {original_path}")
+                return None
+
+        # Copy image to split directory
+        filename = original_file.name
+        new_path = split_images_dir / filename
+
+        if image_data is None:
+            if not new_path.exists():
+                shutil.copy2(original_file, new_path)
+        else:
+            cv2.imwrite(str(new_path), image_data)
+
+        # path to the new image relative to the data_dir
+        relpath = os.path.relpath(new_path, start=self.path_manager.data_dir)
+        return Path(relpath).as_posix()
 
     def _copy_images_for_split(
         self, dataset_name: str, split_name: str, split_coco_data: Dict[str, Any]
     ):
         """Copy images for a specific split to the dataset directory."""
-        images = split_coco_data.get("images", [])
+        infos = split_coco_data.get("images", [])
 
         # Create split images directory
         split_images_dir = self.path_manager.get_dataset_split_images_dir(
@@ -131,37 +488,13 @@ class DataManager:
         )
         split_images_dir.mkdir(parents=True, exist_ok=True)
 
-        for image_info in images:
-            # Extract original image path
-            original_path = image_info.get("file_name", "")
-            if not original_path:
-                self.logger.warning(
-                    f"Image file_name is not set for image {image_info}"
-                )
+        for image_info in infos:
+            new_path = self._copy_or_save_one_image(
+                image_info, split_images_dir, dataset_name, image_data=None
+            )
+            if new_path is None:
                 continue
-
-            # Try to find the image file
-            original_file = Path(original_path)
-            if not original_file.exists():
-                # Try relative to the annotation file directory
-                annotation_dir = self.path_manager.get_dataset_annotations_dir(
-                    dataset_name
-                )
-                original_file = annotation_dir.parent / original_path
-                if not original_file.exists():
-                    self.logger.warning(f"Image file not found: {original_path}")
-                    continue
-
-            # Copy image to split directory
-            filename = original_file.name
-            new_path = split_images_dir / filename
-
-            if not new_path.exists():
-                shutil.copy2(original_file, new_path)
-
-            # Update the file_name in COCO data to relative to master data_dir
-            relpath = os.path.relpath(new_path, start=self.path_manager.data_dir)
-            image_info["file_name"] = Path(relpath).as_posix()
+            image_info["file_name"] = new_path
 
         return split_coco_data
 
@@ -384,10 +717,10 @@ class DataManager:
                 "status": self.dvc_manager.get_status(),
                 "config": self.dvc_manager.get_config(),
             }
-        except Exception as e:
+        except Exception:
             return {
                 "dvc_enabled": True,
-                "error": str(e),
+                "error": traceback.format_exc(),
             }
 
     def create_data_pipeline(
