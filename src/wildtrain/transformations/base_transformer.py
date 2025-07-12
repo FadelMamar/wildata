@@ -29,6 +29,25 @@ class BaseTransformer(ABC):
             config: Configuration dictionary or dataclass for the transformer
         """
         self.logger = logging.getLogger(self.__class__.__name__)
+        # self.config = None
+
+    def _validate_inputs(self, inputs: List[Dict[str, Any]]) -> None:
+        """
+        Validate the inputs.
+        """
+        for data in inputs:
+            assert isinstance(data, dict), "inputs must be a dictionary"
+            assert data.get("image") is not None, "inputs must contain an image"
+            assert (
+                data.get("annotations") is not None
+            ), "inputs must contain annotations"
+            assert (
+                data["image"].shape[2] == 3
+            ), "image must be a 3 channel image arranged like HWC"
+
+            for annotation in data["annotations"]:
+                assert "bbox" in annotation, "annotations must contain a bbox"
+                assert len(annotation["bbox"]) == 4, "bbox must be a list of 4 elements"
 
     @abstractmethod
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -52,4 +71,4 @@ class BaseTransformer(ABC):
         Returns:
             Dictionary with transformation metadata
         """
-        return {"transformer_type": self.__class__.__name__, "config": self.config}
+        return {"transformer_type": self.__class__.__name__}

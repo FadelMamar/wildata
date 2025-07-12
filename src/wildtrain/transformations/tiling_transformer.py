@@ -344,22 +344,12 @@ class TilingTransformer(BaseTransformer):
             self.config.min_visibility = 0.1
 
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        self._validate_input(inputs)
+        self._validate_inputs(inputs)
         outputs = []
         for data in inputs:
             outputs.extend(self._transform_once(data))
 
         return outputs
-
-    def _validate_input(self, inputs: List[Dict[str, Any]]) -> None:
-        """
-        Validate the input of the tiling transformer.
-        """
-        for input in inputs:
-            if "image" not in input:
-                raise ValueError("Image not found in input")
-            if "info" not in input:
-                raise ValueError("Info not found in input")
 
     def _validate_output(
         self, outputs: List[Dict[str, Any]], annotations: List[Dict[str, Any]]

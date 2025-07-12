@@ -9,7 +9,12 @@ class COCOValidator:
     Validator for COCO format annotation files.
     """
 
-    def __init__(self, coco_file_path: str, filter_invalid_annotations: bool = False):
+    def __init__(
+        self,
+        coco_file_path: str,
+        filter_invalid_annotations: bool = False,
+        coco_data: Optional[Dict[str, Any]] = None,
+    ):
         """
         Initialize the validator with the path to the COCO annotation file.
         Args:
@@ -18,12 +23,12 @@ class COCOValidator:
         """
         self.coco_file_path = coco_file_path
         self.filter_invalid_annotations = filter_invalid_annotations
-        self.coco_data: Dict[str, Any] = {}
+        self.coco_data: Dict[str, Any] = coco_data or {}
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self.skipped_annotations = []
 
-    def validate(self) -> Tuple[bool, List[str], List[str]]:
+    def validate(self, bbox_tolerance: int = 5) -> Tuple[bool, List[str], List[str]]:
         """
         Perform comprehensive validation of the COCO file.
         Returns:
@@ -31,6 +36,7 @@ class COCOValidator:
         """
         self.errors = []
         self.warnings = []
+        self.bbox_tolerance = bbox_tolerance
 
         # Load and validate file
         if not self._load_file():
@@ -52,6 +58,9 @@ class COCOValidator:
 
     def _load_file(self) -> bool:
         """Load the COCO JSON file and validate basic structure."""
+        if self.coco_data:
+            return True
+
         try:
             assert str(self.coco_file_path).endswith(
                 ".json"
@@ -152,6 +161,19 @@ class COCOValidator:
                     self.errors.append(f"Duplicate category ID: {cat['id']}")
                 else:
                     category_ids.add(cat["id"])
+
+    def _validate_bbox(
+        self, bbox: List[float], image_width: int, image_height: int, tolerance: int = 5
+    ) -> bool:
+        """Validate bbox."""
+        x, y, w, h = bbox
+        is_valid = (
+            x >= -tolerance
+            and y >= -tolerance
+            and x + w <= image_width + tolerance
+            and y + h <= image_height + tolerance
+        )
+        return is_valid
 
     def _validate_annotation_structure(self):
         """Validate annotation structure."""

@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..validators.coco_validator import COCOValidator
 
@@ -20,7 +20,7 @@ class BaseConverter(ABC):
         pass
 
     @abstractmethod
-    def convert_to_coco_format(
+    def convert(
         self, dataset_name: str
     ) -> tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
         """
@@ -48,7 +48,8 @@ class BaseConverter(ABC):
 
     def _validate_coco_annotation(
         self,
-        coco_annotation: Dict[str, Any],
+        coco_file_path: Optional[str] = None,
+        coco_annotation: Optional[Dict[str, Any]] = None,
         filter_invalid_annotations: bool = False,
     ) -> None:
         """
@@ -59,20 +60,8 @@ class BaseConverter(ABC):
         Raises:
             ValueError: If validation fails.
         """
-        # For now, we'll use a simple validation approach
-        # In the future, we could implement more sophisticated validation
-        required_fields = ["images", "annotations", "categories"]
-        for field in required_fields:
-            if field not in coco_annotation:
-                raise ValueError(f"Missing required field: {field}")
-
-        if not coco_annotation["images"]:
-            raise ValueError("No images found in COCO annotation")
-
-        if not coco_annotation["categories"]:
-            raise ValueError("No categories found in COCO annotation")
-
-        # Report validation success
-        print(
-            f"COCO annotation validation passed: {len(coco_annotation['images'])} images, {len(coco_annotation['annotations'])} annotations"
-        )
+        COCOValidator(
+            coco_file_path=coco_file_path or "",
+            filter_invalid_annotations=filter_invalid_annotations,
+            coco_data=coco_annotation,
+        ).validate()

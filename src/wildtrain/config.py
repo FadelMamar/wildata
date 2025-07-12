@@ -12,6 +12,7 @@ class AugmentationConfig:
     brightness_range: Tuple[float, float] = (0.8, 1.2)
     contrast_range: Tuple[float, float] = (0.8, 1.2)
     noise_std: float = 0.01
+    seed: int = 41
 
     def __post_init__(self):
         self._validate_config()

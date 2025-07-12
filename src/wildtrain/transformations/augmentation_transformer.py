@@ -27,7 +27,10 @@ class AugmentationTransformer(BaseTransformer):
     - Dropout and regularization techniques
     """
 
-    def __init__(self, config: Optional[AugmentationConfig] = None):
+    def __init__(
+        self,
+        config: Optional[AugmentationConfig] = None,
+    ):
         """
         Initialize the augmentation transformer.
 
@@ -73,15 +76,17 @@ class AugmentationTransformer(BaseTransformer):
         transforms.append(A.GaussianBlur(blur_limit=(3, 5), p=0.3))
 
         # Create the pipeline - only include bbox_params if we have bboxes
-        self.pipeline = A.Compose(transforms)
+        self.pipeline = A.Compose(transforms, seed=self.config.seed)
         self.pipeline_with_bboxes = A.Compose(
             transforms,
+            seed=self.config.seed,
             bbox_params=A.BboxParams(
                 format="coco", label_fields=["class_labels"], min_visibility=0.0
             ),
         )
 
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        self._validate_inputs(inputs)
         outputs = []
         for data in inputs:
             outputs.extend(self._transform_once(data))
@@ -109,7 +114,10 @@ class AugmentationTransformer(BaseTransformer):
         # Apply augmentation
         try:
             # Use appropriate pipeline based on whether we have bboxes
-            if "bboxes" in albumentations_data and albumentations_data["bboxes"]:
+            if (
+                "bboxes" in albumentations_data
+                and len(albumentations_data["bboxes"]) > 0
+            ):
                 augmented_data = self.pipeline_with_bboxes(**albumentations_data)
             else:
                 augmented_data = self.pipeline(**albumentations_data)
@@ -153,8 +161,8 @@ class AugmentationTransformer(BaseTransformer):
                 class_labels.append(annotation.get("category_id", 0))
 
         if bboxes:
-            data["bboxes"] = bboxes
-            data["class_labels"] = class_labels
+            data["bboxes"] = np.array(bboxes)
+            data["class_labels"] = np.array(class_labels)
 
         return data
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import cv2
+from tqdm import tqdm
 
 from ..converters.yolo_to_master import YOLOToMasterConverter
 from ..logging_config import get_logger
@@ -72,6 +73,7 @@ class DataPipeline:
         dataset_name: str,
         apply_transformations: bool = False,
         track_with_dvc: bool = False,
+        bbox_tolerance: int = 5,
     ) -> Dict[str, Any]:
         """
         Import a dataset from source format to COCO format.
@@ -108,7 +110,9 @@ class DataPipeline:
             if source_format == "coco":
                 # For COCO, source_path should be the annotation file path
                 validator = COCOValidator(source_path)
-                is_valid, errors, warnings = validator.validate()
+                is_valid, errors, warnings = validator.validate(
+                    bbox_tolerance=bbox_tolerance
+                )
                 if not is_valid:
                     print("[DEBUG] COCO validation failed")
                     return {
@@ -140,9 +144,9 @@ class DataPipeline:
                 # Create converter and convert YOLO to COCO format
                 converter = YOLOToMasterConverter(source_path)
                 converter.load_yolo_data()
-                dataset_info, split_data = converter.convert_to_coco_format(
-                    dataset_name
-                )
+                dataset_info, split_data = converter.convert(dataset_name)
+            else:
+                raise ValueError(f"Unsupported source format: {source_format}")
 
             # Apply transformations if requested
             if apply_transformations:
@@ -174,7 +178,7 @@ class DataPipeline:
 
         except Exception as e:
             self.logger.error(f"Error importing dataset: {str(e)}")
-            print(f"[DEBUG] Exception in import_dataset: {e}")
+            print(f"[DEBUG] Exception in import_dataset: {traceback.format_exc()}")
             return {
                 "success": False,
                 "error": str(e),
@@ -196,7 +200,7 @@ class DataPipeline:
             Tuple of (dataset_info, split_data)
         """
 
-        with open(coco_annotation_path, "r") as f:
+        with open(coco_annotation_path, "r", encoding="utf-8") as f:
             coco_data = json.load(f)
 
         image_dir = Path(coco_annotation_path).parents[1] / "images"
@@ -218,7 +222,6 @@ class DataPipeline:
         annotations_by_split = {}
 
         # Determine split for each image (simple logic - can be improved)
-
         for image in coco_data.get("images", []):
             split = self._determine_split_from_image(image, coco_annotation_path)
             path = image_dir / split / Path(image["file_name"]).name
@@ -288,7 +291,9 @@ class DataPipeline:
         """
         transformed_split_data = {}
 
-        for split_name, split_coco_data in split_data.items():
+        for split_name, split_coco_data in tqdm(
+            split_data.items(), desc="Applying transformations to dataset"
+        ):
             transformed_images = []
             transformed_annotations = []
 
@@ -298,14 +303,13 @@ class DataPipeline:
                 if not Path(image_path).exists():
                     self.logger.warning(f"Could not load image: {image_path}")
                     continue
-                image = cv2.imread(str(image_path))
-
                 # Get annotations for this image
                 image_annotations = [
                     ann
                     for ann in split_coco_data["annotations"]
                     if ann["image_id"] == image_info["id"]
                 ]
+                image = cv2.imread(str(image_path))
 
                 # Apply transformations
                 try:
@@ -322,7 +326,7 @@ class DataPipeline:
                         transformed_annotations.extend(data.get("annotations", []))
 
                 except Exception as e:
-                    self.logger.error(
+                    print(
                         f"Error transforming image {image_info['file_name']}: {str(e)}"
                     )
                     continue

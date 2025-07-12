@@ -73,21 +73,12 @@ class TransformationPipeline:
         self.transformers.clear()
         self.logger.info("Cleared all transformers")
 
-    def _validate_inputs(self, inputs: Dict[str, Any]) -> None:
-        """
-        Validate the inputs.
-        """
-        assert isinstance(inputs, dict), "inputs must be a dictionary"
-        assert inputs.get("image") is not None, "inputs must contain an image"
-        assert inputs.get("annotations") is not None, "inputs must contain annotations"
-
     def transform(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Apply all transformers in sequence.
         Returns:
             List of transformed data dictionaries
         """
-        self._validate_inputs(inputs)
         data = [inputs]
         outputs = None
 
@@ -109,7 +100,7 @@ class TransformationPipeline:
 
             except Exception as e:
                 self.logger.error(
-                    f"Error in transformer {transformer.__class__.__name__}: {str(e)}"
+                    f"Error in transformer {transformer.__class__.__name__}: {traceback.format_exc()}"
                 )
                 raise
 

@@ -28,12 +28,12 @@ class DVCStorageType(Enum):
 class DVCConfig:
     """Configuration for DVC integration."""
 
-    storage_type: DVCStorageType
-    storage_path: str
+    storage_type: DVCStorageType = DVCStorageType.S3
+    storage_path: str = "s3://dvc-storage"
     cache_dir: Optional[str] = None
-    remote_name: str = "origin"
-    auto_push: bool = True
-    auto_pull: bool = True
+    remote_name: str = "dataregistry"
+    auto_push: bool = False
+    auto_pull: bool = False
 
 
 class DVCManager:
@@ -113,6 +113,8 @@ class DVCManager:
         Returns:
             True if setup was successful
         """
+        if self.config.storage_type != DVCStorageType.S3:
+            raise ValueError(f"{self.config.storage_type} storage is not supported")
         try:
             # Check if remote already exists
             if not force:
@@ -127,16 +129,10 @@ class DVCManager:
             remote_args = [
                 "remote",
                 "add",
+                "-d",
                 self.config.remote_name,
                 self.config.storage_path,
             ]
-
-            if self.config.storage_type == DVCStorageType.S3:
-                remote_args.extend(["--config", "core.remote", "s3"])
-            elif self.config.storage_type == DVCStorageType.GCS:
-                remote_args.extend(["--config", "core.remote", "gcs"])
-            elif self.config.storage_type == DVCStorageType.AZURE:
-                remote_args.extend(["--config", "core.remote", "azure"])
 
             returncode, stdout, stderr = self._run_dvc_command(remote_args)
 
