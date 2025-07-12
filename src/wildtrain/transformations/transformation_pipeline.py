@@ -92,7 +92,7 @@ class TransformationPipeline:
         outputs = None
 
         if len(self.transformers) == 0:
-            return inputs
+            return [inputs]
 
         for i, transformer in enumerate(self.transformers):
             try:

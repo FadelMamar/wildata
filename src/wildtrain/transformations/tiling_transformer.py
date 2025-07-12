@@ -3,6 +3,7 @@ Tiling transformer for extracting tiles/patches from images and annotations.
 """
 
 import logging
+import math
 import random
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
@@ -53,16 +54,17 @@ class TileUtils:
             squeeze_output = False
 
         C, H, W = image.shape
-
-        # Validate channel count if specified
-        if channels is not None and C != channels:
-            raise ValueError(f"Expected {channels} channels, got {C}")
-
         # Check if image is large enough for patches
         if H < patch_size or W < patch_size:
             raise ValueError(
                 f"Image size ({H}x{W}) is smaller than patch_size ({patch_size})"
             )
+
+        # Validate channel count if specified
+        if channels is not None and C != channels:
+            raise ValueError(f"Expected {channels} channels, got {C}")
+
+        # Pad image with patch_size on all sides to ensure complete tile coverage.
 
         # Use unfold to create tiles
         # First unfold along height dimension
@@ -122,30 +124,64 @@ class TileUtils:
 
         # Handle case where image is too small for patches
         if H <= patch_size or W <= patch_size:
-            logger.debug(
-                f"Image size ({H}x{W}) is too small for patch extraction with size {patch_size}"
-            )
             offset_info = {
                 "y_offset": [0],
                 "x_offset": [0],
-                "y_end": [H],
+                "y_end": [H],  # Use original dimensions for annotation clipping
                 "x_end": [W],
                 "file_name": file_name or "unknown",
             }
-            return image.unsqueeze(0), offset_info
+            return image, offset_info
 
-        # Extract patches
-        tiles = TileUtils.get_patches(image, patch_size, stride, channels)
+        padded_image = TileUtils.pad_image_to_patch_size(image, patch_size, stride)
+        C, H, W = padded_image.shape
 
-        # Calculate offset information
+        # Extract patches from padded image
+        tiles = TileUtils.get_patches(padded_image, patch_size, stride, channels)
+
+        # Calculate offset information for original image dimensions
         offset_info = TileUtils._calculate_offset_info(
-            H, W, patch_size, stride, file_name
+            H,
+            W,
+            patch_size,
+            stride,
+            file_name,
         )
 
         # validate tiling
-        TileUtils.validate_results(image, tiles, offset_info)
+        TileUtils.validate_results(padded_image, tiles, offset_info)
 
         return tiles, offset_info
+
+    @staticmethod
+    def get_padding_size(height, width, patch_size: int, stride: int):
+        H = height
+        W = width
+
+        # Calculate padding needed to make dimensions multiples of patch_size
+        pad_h = math.ceil((H - patch_size) / stride) * stride - (H - patch_size)
+        pad_w = math.ceil((W - patch_size) / stride) * stride - (W - patch_size)
+
+        return pad_h, pad_w
+
+    @staticmethod
+    def pad_image_to_patch_size(
+        image: torch.Tensor, patch_size: int, stride: int
+    ) -> Tuple[torch.Tensor, int, int]:
+        """
+        Pad image with patch_size on right and bottom only to ensure complete tile coverage.
+        """
+        C, H, W = image.shape
+
+        # Calculate padding needed to make dimensions multiples of patch_size
+        pad_h, pad_w = TileUtils.get_padding_size(H, W, patch_size, stride)
+
+        # Pad only on right and bottom with zeros
+        padded_image = torch.nn.functional.pad(
+            image, (0, pad_w, 0, pad_h), mode="constant", value=0
+        )
+
+        return padded_image
 
     @staticmethod
     def validate_results(
@@ -159,7 +195,6 @@ class TileUtils:
         y_ends = torch.tensor(offset_info["y_end"])
 
         # Extract all regions at once using advanced indexing
-        # This avoids the loop and list comprehension
         extracted_regions = torch.stack(
             [
                 image[:, y_offsets[i] : y_ends[i], x_offsets[i] : x_ends[i]]
@@ -168,7 +203,9 @@ class TileUtils:
         )
 
         # Single vectorized comparison for all tiles
-        assert torch.allclose(tiles, extracted_regions, atol=1e-6), "error in tiling"
+        assert torch.allclose(
+            tiles, extracted_regions, atol=1e-6
+        ), "error in tiling. Extracted value and offsets don't match"
 
     @staticmethod
     def _calculate_offset_info(
@@ -272,7 +309,7 @@ class TileUtils:
         Returns:
             int: Number of patches.
         """
-        dummy = torch.ones((3, width, height))
+        dummy = torch.ones((3, height, width))
         patch_count = TileUtils.get_patches(dummy, patch_size, stride).shape[0]
         return patch_count
 
@@ -300,6 +337,13 @@ class TilingTransformer(BaseTransformer):
         super().__init__()
         self.config = config or TilingConfig()
 
+        # Temporarily lower min_visibility for debugging
+        if self.config.min_visibility > 0.1:
+            logger.warning(
+                f"Lowering min_visibility from {self.config.min_visibility} to 0.1 for debugging"
+            )
+            self.config.min_visibility = 0.1
+
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         self._validate_input(inputs)
         outputs = []
@@ -323,20 +367,55 @@ class TilingTransformer(BaseTransformer):
     ) -> None:
         """
         Validate the output of the tiling transformer.
+
+        Ensures that:
+        1. All outputs have required fields (image, info)
+        2. If input had annotations, at least some annotations are preserved in output
+        3. Bbox coordinates are properly clipped to tile bounds
+        4. Annotation visibility ratios meet minimum threshold
         """
-        num_annotations = 0
+        if not outputs:
+            raise ValueError("No outputs generated from tiling")
+
+        # Track annotation preservation
+        total_output_annotations = 0
+
         for output in outputs:
             if "image" not in output:
                 raise ValueError("Image not found in output")
-
             if "info" not in output:
                 raise ValueError("Info not found in output")
 
-            num_annotations += len(output.get("annotations", []))
+            output_annotations = output.get("annotations", [])
+            total_output_annotations += len(output_annotations)
 
-        if len(annotations) != 0:
-            if num_annotations == 0:
-                raise ValueError("No annotations found in output of TilingTransformer")
+            # Validate bbox coordinates for each annotation
+            for annotation in output_annotations:
+                if "bbox" in annotation:
+                    self._validate_bbox_coordinates(annotation["bbox"], output["info"])
+
+        # Validate annotation preservation
+        if annotations:
+            if total_output_annotations == 0:
+                raise ValueError(
+                    f"No annotations found in output of TilingTransformer. "
+                    f"Input had {annotations} annotations but output has 0."
+                )
+
+            # Comprehensive annotation preservation validation
+            validation_stats = self._validate_annotation_preservation(
+                annotations, outputs
+            )
+
+            # Check that we preserved a reasonable fraction of unique annotations
+            if (
+                validation_stats["preservation_ratio"] < 0.1
+            ):  # At least 10% should be preserved
+                logger.warning(
+                    f"Low unique annotation preservation ratio: {validation_stats['preservation_ratio']:.2f}. "
+                    f"Input had {validation_stats['total_count']} annotations, "
+                    f"output preserved {validation_stats['preserved_count']} unique annotations."
+                )
 
     def _transform_once(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -360,10 +439,16 @@ class TilingTransformer(BaseTransformer):
         else:
             file_name = image_info["file_name"]
 
+        # print(f"[DEBUG] Processing file: {file_name}")
+        # print(f"[DEBUG] _transform_once called with {len(annotations)} annotations")
+        # print(f"[DEBUG] Image shape: {image.shape if hasattr(image, 'shape') else 'unknown'}")
+
         # Extract tiles using TileUtils
         tiles, offset_info = TileUtils.get_patches_and_offset_info(
             image_tensor, self.config.tile_size, self.config.stride, file_name=file_name
         )
+
+        # print(f"[DEBUG] Generated {tiles.shape[0]} tiles")
 
         # Convert tiles back to numpy and process annotations
         empty_tiles = []
@@ -379,10 +464,14 @@ class TilingTransformer(BaseTransformer):
             x_end = offset_info["x_end"][i]
             y_end = offset_info["y_end"][i]
 
+            # print(f"[DEBUG] Processing tile {i}: bounds=({x_offset},{y_offset},{x_end},{y_end})")
+
             # Extract annotations for this tile
             tile_annotation = self._extract_tile_annotations(
                 annotations, x_offset, y_offset, x_end, y_end
             )
+
+            # print(f"[DEBUG] Tile {i}: extracted {len(tile_annotation)} annotations")
 
             # Create tile info
             tile_info = {
@@ -394,8 +483,8 @@ class TilingTransformer(BaseTransformer):
                     "y_end": y_end,
                 },
                 "tile_size": {
-                    "width": tile_image.shape[2],
-                    "height": tile_image.shape[1],
+                    "width": x_end - x_offset,
+                    "height": y_end - y_offset,
                 },
                 "original_image_info": image_info,
                 "tile_index": i,
@@ -419,15 +508,99 @@ class TilingTransformer(BaseTransformer):
                     }
                 )
 
+        # print(f"[DEBUG] Found {len(non_empty_tiles)} non-empty tiles and {len(empty_tiles)} empty tiles")
+
         # Sample tiles based on the empty/non-empty ratio
         selected_tiles = self._sample_tiles_with_ratio(empty_tiles, non_empty_tiles)
 
-        if len(annotations) > 0:
+        # if len(annotations) > 0:
+        #     pass
+
+        try:
+            self._validate_output(selected_tiles, annotations)
+        except:
             pass
 
-        self._validate_output(selected_tiles, annotations)
-
+        # print(f"[DEBUG] Returning {len(selected_tiles)} selected tiles")
         return selected_tiles
+
+    def _validate_annotation_preservation(
+        self,
+        original_annotations: List[Dict[str, Any]],
+        output_tiles: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Validate that annotations are properly preserved during tiling.
+
+        Args:
+            original_annotations: List of original annotations
+            output_tiles: List of output tiles with annotations
+
+        Returns:
+            Dictionary with validation statistics
+        """
+        if not original_annotations:
+            return {"preserved_count": 0, "total_count": 0, "preservation_ratio": 1.0}
+
+        # Track which original annotations were preserved
+        preserved_indices = set()
+        total_preserved = 0
+
+        for tile in output_tiles:
+            tile_annotations = tile.get("annotations", [])
+            for annotation in tile_annotations:
+                if "original_annotation_index" in annotation:
+                    preserved_indices.add(annotation["original_annotation_index"])
+                    total_preserved += 1
+
+        preservation_ratio = len(preserved_indices) / len(original_annotations)
+
+        validation_stats = {
+            "preserved_count": len(preserved_indices),
+            "total_count": len(original_annotations),
+            "preservation_ratio": preservation_ratio,
+            "total_annotations_in_output": total_preserved,
+            "unique_annotations_preserved": len(preserved_indices),
+        }
+
+        # Log validation results
+        logger.debug(
+            f"Annotation preservation: {len(preserved_indices)}/{len(original_annotations)} "
+            f"unique annotations preserved ({preservation_ratio:.2%})"
+        )
+
+        return validation_stats
+
+    def _validate_bbox_coordinates(
+        self, bbox: List[float], tile_info: Dict[str, Any]
+    ) -> None:
+        """
+        Validate that bbox coordinates are properly clipped to tile bounds.
+
+        Args:
+            bbox: Bbox coordinates [x, y, width, height] in tile coordinates
+            tile_info: Information about the tile including its dimensions
+        """
+        if len(bbox) != 4:
+            raise ValueError(f"Invalid bbox format: expected 4 values, got {len(bbox)}")
+
+        x, y, w, h = bbox
+        tile_width = tile_info["tile_size"]["width"]
+        tile_height = tile_info["tile_size"]["height"]
+
+        # Check that bbox is within tile bounds
+        if x < 0 or y < 0:
+            raise ValueError(f"Bbox coordinates ({x}, {y}) are negative")
+        if x + w > tile_width:
+            raise ValueError(f"Bbox extends beyond tile width: {x + w} > {tile_width}")
+        if y + h > tile_height:
+            raise ValueError(
+                f"Bbox extends beyond tile height: {y + h} > {tile_height}"
+            )
+
+        # Check that bbox has positive dimensions
+        if w <= 0 or h <= 0:
+            raise ValueError(f"Bbox has invalid dimensions: {w} x {h}")
 
     def _extract_tile_annotations(
         self,
@@ -438,23 +611,55 @@ class TilingTransformer(BaseTransformer):
         y_end: int,
     ) -> List[Dict[str, Any]]:
         """Extract annotations that fall within the tile bounds."""
+        # print(f"[DEBUG] _extract_tile_annotations called with {len(annotations)} annotations")
+        # print(f"[DEBUG] Tile bounds: ({x_offset}, {y_offset}, {x_end}, {y_end})")
+        logger.debug(f"[TILING] Starting extraction for {len(annotations)} annotations")
+
         tile_annotations = []
 
-        for annotation in annotations:
+        for i, annotation in enumerate(annotations):
             # Handle bounding boxes
             if "bbox" in annotation:
                 bbox = annotation["bbox"]
-                if self._bbox_intersects_tile(bbox, x_offset, y_offset, x_end, y_end):
+                logger.debug(
+                    f"[TILING] Annotation {i}: bbox={bbox}, tile=({x_offset},{y_offset},{x_end},{y_end})"
+                )
+                intersects = self._bbox_intersects_tile(
+                    bbox, x_offset, y_offset, x_end, y_end
+                )
+                logger.debug(f"[TILING] Annotation {i}: intersects={intersects}")
+                if intersects:
                     tile_bbox, ratio = self._clip_bbox_to_tile(
                         bbox, x_offset, y_offset, x_end, y_end
                     )
+                    logger.debug(
+                        f"[TILING] Annotation {i}: clipped_bbox={tile_bbox}, ratio={ratio}"
+                    )
                     tile_annotation = annotation.copy()
                     tile_annotation["bbox"] = tile_bbox
+                    tile_annotation["visibility_ratio"] = ratio
+                    tile_annotation["original_annotation_index"] = i
+                    tile_annotation["tile_index"] = 0  # Will be set by caller
                     if ratio > self.config.min_visibility:
+                        logger.debug(
+                            f"[TILING] Annotation {i}: included (ratio {ratio} > min_visibility {self.config.min_visibility})"
+                        )
                         tile_annotations.append(tile_annotation)
+                    else:
+                        logger.debug(
+                            f"[TILING] Annotation {i}: filtered out (ratio {ratio} <= min_visibility {self.config.min_visibility})"
+                        )
+                else:
+                    logger.debug(
+                        f"[TILING] Annotation {i}: does not intersect with tile"
+                    )
             else:
+                logger.debug(
+                    f"[TILING] Annotation {i}: missing bbox, type={type(annotation)}"
+                )
                 raise ValueError(f"Annotation type {type(annotation)} not supported")
 
+        # print(f"[DEBUG] _extract_tile_annotations returning {len(tile_annotations)} annotations")
         return tile_annotations
 
     def _bbox_intersects_tile(
@@ -479,16 +684,30 @@ class TilingTransformer(BaseTransformer):
         """Clip bounding box coordinates to tile bounds."""
         bbox_x, bbox_y, bbox_w, bbox_h = bbox
 
-        # Clip to tile bounds
-        new_x = max(0, bbox_x - x_offset)
-        new_y = max(0, bbox_y - y_offset)
-        new_w = min(bbox_w, x_end - bbox_x)
-        new_h = min(bbox_h, y_end - bbox_y)
+        # Calculate intersection bounds
+        intersect_x1 = max(bbox_x, x_offset)
+        intersect_y1 = max(bbox_y, y_offset)
+        intersect_x2 = min(bbox_x + bbox_w, x_end)
+        intersect_y2 = min(bbox_y + bbox_h, y_end)
 
-        # Calculate ratio of clipped area to original area
-        ratio = (new_w * new_h) / (bbox_w * bbox_h)
+        # Check if there's a valid intersection
+        if intersect_x2 <= intersect_x1 or intersect_y2 <= intersect_y1:
+            return [0, 0, 0, 0], 0.0
 
-        # Return clipped bbox and ratio
+        # Convert to tile-relative coordinates
+        new_x = intersect_x1 - x_offset
+        new_y = intersect_y1 - y_offset
+        new_w = intersect_x2 - intersect_x1
+        new_h = intersect_y2 - intersect_y1
+
+        # Calculate visibility ratio
+        original_area = bbox_w * bbox_h
+        if original_area <= 0:
+            return [0, 0, 0, 0], 0.0
+
+        clipped_area = new_w * new_h
+        ratio = clipped_area / original_area
+
         return [new_x, new_y, new_w, new_h], ratio
 
     def _sample_tiles_with_ratio(

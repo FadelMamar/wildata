@@ -145,7 +145,7 @@ class DataPipeline:
                 )
 
             # Apply transformations if requested
-            if apply_transformations and self.transformation_pipeline:
+            if apply_transformations:
                 print("[DEBUG] Applying transformations")
                 split_data = self._apply_transformations_to_dataset(split_data)
 
@@ -222,7 +222,7 @@ class DataPipeline:
         for image in coco_data.get("images", []):
             split = self._determine_split_from_image(image, coco_annotation_path)
             path = image_dir / split / Path(image["file_name"]).name
-            image["file_name"] = str(path)
+            image["file_name"] = str(Path(path).resolve())
             if split not in images_by_split:
                 images_by_split[split] = []
                 annotations_by_split[split] = []
@@ -295,22 +295,10 @@ class DataPipeline:
             for image_info in split_coco_data["images"]:
                 # Load image
                 image_path = Path(image_info["file_name"])
-                if not image_path.is_absolute():
-                    # Try to find image relative to the data directory
-                    image_path = (
-                        self.path_manager.get_dataset_split_images_dir(
-                            "temp", split_name
-                        )
-                        / image_path
-                    )
-
-                # Load image using OpenCV
-                import cv2
-
-                image = cv2.imread(str(image_path))
-                if image is None:
+                if not Path(image_path).exists():
                     self.logger.warning(f"Could not load image: {image_path}")
                     continue
+                image = cv2.imread(str(image_path))
 
                 # Get annotations for this image
                 image_annotations = [
