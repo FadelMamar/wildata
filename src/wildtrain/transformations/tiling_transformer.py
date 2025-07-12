@@ -307,8 +307,9 @@ class TileUtils:
         Returns:
             int: Number of patches.
         """
-        dummy = torch.ones((3, height, width))
-        patch_count = TileUtils.get_patches(dummy, patch_size, stride).shape[0]
+        num_patches_h = ((height - patch_size) // stride) + 1
+        num_patches_w = ((width - patch_size) // stride) + 1
+        patch_count = num_patches_h * num_patches_w
         return patch_count
 
 
