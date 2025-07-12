@@ -5,6 +5,7 @@ Tiling transformer for extracting tiles/patches from images and annotations.
 import logging
 import math
 import random
+from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
 import numpy as np
@@ -14,6 +15,9 @@ from ..config import TilingConfig
 from .base_transformer import BaseTransformer
 
 logger = logging.getLogger(__name__)
+
+
+from uuid import uuid4
 
 
 class TileUtils:
@@ -453,21 +457,14 @@ class TilingTransformer(BaseTransformer):
             )
 
             # Create tile info
-            tile_info = {
-                "tile_id": f"{file_name}_tile_{i}_{x_offset}_{y_offset}",
-                "tile_coords": {
-                    "x_offset": x_offset,
-                    "y_offset": y_offset,
-                    "x_end": x_end,
-                    "y_end": y_end,
-                },
-                "tile_size": {
-                    "width": x_end - x_offset,
-                    "height": y_end - y_offset,
-                },
-                "original_image_info": image_info,
-                "tile_index": i,
-            }
+            tile_info = dict(
+                file_name=f"{Path(file_name).stem}_tile_{i}_{x_offset}_{y_offset}.jpg",
+                width=x_end - x_offset,
+                height=y_end - y_offset,
+                id=str(uuid4()),
+            )
+            for ann in tile_annotation:
+                ann["image_id"] = tile_info["id"]
 
             # Check if tile meets criteria and categorize
             if tile_annotation:  # Non-empty tile
@@ -492,7 +489,15 @@ class TilingTransformer(BaseTransformer):
 
         self._validate_output(selected_tiles, annotations)
 
-        return selected_tiles
+        # keep only tiles with enough content
+        filtered_tiles = []
+        for tile in selected_tiles:
+            image = tile["image"]  # numpy array, shape (H, W, C)
+            ratio = np.isclose(np.abs(image - 10.0), 0.0).sum() / image.size
+            if ratio <= self.config.dark_threshold:
+                filtered_tiles.append(tile)
+
+        return filtered_tiles
 
     def _validate_annotation_preservation(
         self,
@@ -555,8 +560,8 @@ class TilingTransformer(BaseTransformer):
             raise ValueError(f"Invalid bbox format: expected 4 values, got {len(bbox)}")
 
         x, y, w, h = bbox
-        tile_width = tile_info["tile_size"]["width"]
-        tile_height = tile_info["tile_size"]["height"]
+        tile_width = tile_info["width"]
+        tile_height = tile_info["height"]
 
         # Check that bbox is within tile bounds
         if x < 0 or y < 0:
@@ -607,7 +612,6 @@ class TilingTransformer(BaseTransformer):
                     tile_annotation["bbox"] = tile_bbox
                     tile_annotation["visibility_ratio"] = ratio
                     tile_annotation["original_annotation_index"] = i
-                    tile_annotation["tile_index"] = 0  # Will be set by caller
                     if ratio > self.config.min_visibility:
                         logger.debug(
                             f"[TILING] Annotation {i}: included (ratio {ratio} > min_visibility {self.config.min_visibility})"

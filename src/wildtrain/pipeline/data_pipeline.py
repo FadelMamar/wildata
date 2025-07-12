@@ -63,9 +63,6 @@ class DataPipeline:
         # Initialize framework data manager
         self.framework_data_manager = FrameworkDataManager(self.path_manager)
 
-        # Don't pre-instantiate converters and validators - create on demand
-        self.adapters = {}
-
     def import_dataset(
         self,
         source_path: str,
@@ -446,16 +443,6 @@ class DataPipeline:
         except Exception as e:
             self.logger.error(f"Error exporting YOLO format: {str(e)}")
             return False
-
-    def add_transformation(self, transformer) -> None:
-        """
-        Add a transformation to the pipeline.
-
-        Args:
-            transformer: Transformation to add
-        """
-        if self.transformation_pipeline:
-            self.transformation_pipeline.add_transformer(transformer)
 
     def get_pipeline_status(self) -> Dict[str, Any]:
         """

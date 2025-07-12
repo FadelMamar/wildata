@@ -24,12 +24,12 @@ class YOLOAdapter(BaseAdapter):
         """
         images = self.coco_data.get("images", [])
         image_id_to_image = {img["id"]: img for img in images}
-        image_labels: Dict[str, List[str]] = {img["file_name"]: [] for img in images}
+        image_labels = {img["file_name"]: [] for img in images}
         annotations = self.coco_data.get("annotations", [])
 
         for ann in annotations:
-            if ann["image_id"] in image_id_to_image:
-                img = image_id_to_image[ann["image_id"]]
+            img = image_id_to_image.get(ann["image_id"])
+            if img is not None:
                 width, height = img["width"], img["height"]
                 yolo_line = self._annotation_to_yolo_line(ann, width, height)
                 if yolo_line:
@@ -104,26 +104,8 @@ class YOLOAdapter(BaseAdapter):
         w_norm = w / width
         h_norm = h / height
         class_id = ann["category_id"]
-        # Polygon segmentation (YOLOv8): append after bbox if present
-        seg_str = ""
-        if "segmentation" in ann and ann["segmentation"]:
-            # Only handle polygon (list of points)
-            seg = ann["segmentation"]
-            if isinstance(seg, list) and seg and isinstance(seg[0], (list, float, int)):
-                # Flatten if nested
-                if isinstance(seg[0], list):
-                    seg_points = [
-                        str(float(pt) / width if i % 2 == 0 else float(pt) / height)
-                        for poly in seg
-                        for i, pt in enumerate(poly)
-                    ]
-                else:
-                    seg_points = [
-                        str(float(pt) / width if i % 2 == 0 else float(pt) / height)
-                        for i, pt in enumerate(seg)
-                    ]
-                seg_str = " " + " ".join(seg_points)
-        return f"{class_id} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}{seg_str}"
+
+        return f"{class_id} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}"
 
     def _dict_to_yaml(self, d: Dict[str, Any], indent: int = 0) -> str:
         # Minimal YAML serializer for simple dicts/lists

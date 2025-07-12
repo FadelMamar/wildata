@@ -18,6 +18,7 @@ dependencies = [
     "dvc>=3.0.0",
     "pre-commit>=4.2.0",
     "spyder-kernels==3.0.*",
+    "dvc-s3>=3.2.2",
 ]
 
 [project.scripts]

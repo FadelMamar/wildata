@@ -3,6 +3,7 @@ Data augmentation transformer using Albumentations library.
 """
 
 import traceback
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import albumentations as A
@@ -46,34 +47,44 @@ class AugmentationTransformer(BaseTransformer):
         transforms = []
 
         # Basic geometric transforms
-        if self.config.rotation_range != (0, 0):
-            transforms.append(
-                A.Affine(rotate=self.config.rotation_range, p=self.config.probability)
+        transforms.append(
+            A.Affine(
+                scale=self.config.scale,
+                translate_percent=self.config.translate,
+                # Tuple for rotation range
+                rotate=self.config.rotation_range,
+                shear=self.config.shear,
+                # Interpolation methods
+                interpolation=cv2.INTER_LINEAR,
+                mask_interpolation=cv2.INTER_NEAREST,
+                # Other parameters
+                fit_output=False,
+                keep_ratio=True,
+                rotate_method="largest_box",
+                balanced_scale=True,
+                border_mode=cv2.BORDER_CONSTANT,
+                fill=0,
+                fill_mask=0,
+                p=self.config.probability,
             )
+        )
 
         # Horizontal flip
-        if self.config.probability > 0:
-            transforms.append(A.HorizontalFlip(p=self.config.probability))
+        transforms.append(A.HorizontalFlip(p=self.config.probability))
 
         # Brightness and contrast adjustments
-        if self.config.brightness_range != (1.0, 1.0) or self.config.contrast_range != (
-            1.0,
-            1.0,
-        ):
-            transforms.append(
-                A.RandomBrightnessContrast(
-                    brightness_limit=self.config.brightness_range,
-                    contrast_limit=self.config.contrast_range,
-                    p=self.config.probability,
-                )
+        transforms.append(
+            A.RandomBrightnessContrast(
+                brightness_limit=self.config.brightness_range,
+                contrast_limit=self.config.contrast_range,
+                p=self.config.probability,
             )
+        )
 
         # Noise addition
-        if self.config.noise_std > 0:
-            transforms.append(A.GaussNoise(p=0.3))
-
-        # Blur effects
-        transforms.append(A.GaussianBlur(blur_limit=(3, 5), p=0.3))
+        transforms.append(
+            A.GaussNoise(p=self.config.probability, std_range=self.config.noise_std)
+        )
 
         # Create the pipeline - only include bbox_params if we have bboxes
         self.pipeline = A.Compose(transforms, seed=self.config.seed)
@@ -89,11 +100,14 @@ class AugmentationTransformer(BaseTransformer):
         self._validate_inputs(inputs)
         outputs = []
         for data in inputs:
-            for _ in range(self.config.num_transforms):
-                outputs.extend(self._transform_once(data))
+            for i in range(self.config.num_transforms):
+                outputs.append(self._transform_once(data, i))
+
+        # add untransformed
+        outputs.extend(inputs.copy())
         return outputs
 
-    def _transform_once(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _transform_once(self, inputs: Dict[str, Any], index: int) -> Dict[str, Any]:
         """
         Apply augmentation transformations to both image and annotations.
 
@@ -128,23 +142,22 @@ class AugmentationTransformer(BaseTransformer):
             ) = self._process_augmented_annotations(augmented_data, annotations)
             # Update image info
             updated_image_info = image_info.copy()
+            updated_image_info[
+                "file_name"
+            ] = f"{Path(updated_image_info['file_name']).stem}_augmented_{index}.jpg"
             updated_image_info["augmentation_applied"] = True
-            updated_image_info["original_shape"] = image.shape
-            updated_image_info["augmented_shape"] = augmented_image.shape
 
             output = {
                 "image": augmented_image,
                 "annotations": transformed_annotations,
                 "info": updated_image_info,
             }
-            return [output]
-        except Exception as e:
+            return output
+        except Exception:
             self.logger.warning(
                 f"Augmentation failed, returning original data: {traceback.format_exc()}"
             )
-            # augmented_image = image
-            # transformed_annotations = annotations
-            raise e
+            raise ValueError(f"Augmentation failed: {traceback.format_exc()}")
 
     def _prepare_albumentations_data(
         self, image: np.ndarray, annotations: List[Dict[str, Any]]
@@ -186,10 +199,8 @@ class AugmentationTransformer(BaseTransformer):
             return augmented_image, original_annotations
 
         for i, bbox in enumerate(bboxes):
-            if len(bbox) != 4:
-                continue  # invalid bbox
             transformed_annotation = original_annotations[i].copy()
-            transformed_annotation["bbox"] = bbox
+            transformed_annotation["bbox"] = list(bbox)
             transformed_annotations.append(transformed_annotation)
 
         return augmented_image, transformed_annotations

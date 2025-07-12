@@ -8,19 +8,22 @@ ROOT = Path(__file__).parents[2]
 @dataclass
 class AugmentationConfig:
     rotation_range: Tuple[float, float] = (-45, 45)
-    probability: float = 0.5
-    brightness_range: Tuple[float, float] = (0.8, 1.2)
-    contrast_range: Tuple[float, float] = (0.8, 1.2)
-    noise_std: float = 0.01
+    probability: float = 1.0
+    brightness_range: Tuple[float, float] = (-0.2, 0.4)
+    scale: Tuple[float, float] = (1.0, 2.0)
+    translate: Tuple[float, float] = (-0.1, 0.2)
+    shear: Tuple[float, float] = (-5, 5)
+    contrast_range: Tuple[float, float] = (-0.2, 0.4)
+    noise_std: Tuple[float, float] = (0.01, 0.1)
     seed: int = 41
-    num_transforms: int = 3
+    num_transforms: int = 2
 
     def __post_init__(self):
         self._validate_config()
         self.rotation_range = tuple(float(x) for x in self.rotation_range)
         self.brightness_range = tuple(float(x) for x in self.brightness_range)
         self.contrast_range = tuple(float(x) for x in self.contrast_range)
-        self.noise_std = float(self.noise_std)
+        self.noise_std = tuple(float(x) for x in self.noise_std)
         self.probability = float(self.probability)
 
     def _validate_config(self):
@@ -33,17 +36,20 @@ class AugmentationConfig:
             raise ValueError("Brightness range start must be less than or equal to end")
         if self.contrast_range[0] > self.contrast_range[1]:
             raise ValueError("Contrast range start must be less than or equal to end")
-        if self.noise_std < 0:
-            raise ValueError("Noise standard deviation must be non-negative")
+        if self.noise_std[0] > self.noise_std[1]:
+            raise ValueError(
+                f"Noise standard deviation range is flipped -> {self.noise_std}"
+            )
 
 
 @dataclass
 class TilingConfig:
     tile_size: int = 512
-    stride: int = 256
+    stride: int = 416
     min_visibility: float = 0.1
     max_negative_tiles_in_negative_image: int = 3
     negative_positive_ratio: float = 1.0
+    dark_threshold: float = 0.5  # keep tiles with less than e.g. 50% dark pixels
 
     def __post_init__(self):
         self._validate_config()
@@ -69,6 +75,8 @@ class TilingConfig:
             raise ValueError("Maximum negative tiles must be greater than 0")
         if self.negative_positive_ratio < 0:
             raise ValueError("Negative positive ratio must be non-negative")
+        if self.dark_threshold < 0 or self.dark_threshold > 1:
+            raise ValueError("Dark threshold must be between 0 and 1")
 
 
 @dataclass

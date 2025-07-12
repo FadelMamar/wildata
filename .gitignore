@@ -6,7 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Ignore data files but allow .dvc files
 data/*
+!data/*.dvc
 
 *.jpg
 *.JPG
@@ -211,6 +213,10 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# DVC
+# Allow .dvc files to be tracked by git
+!*.dvc
 
 # Marimo
 marimo/_static/

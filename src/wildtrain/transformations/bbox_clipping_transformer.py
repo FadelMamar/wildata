@@ -21,7 +21,7 @@ class BoundingBoxClippingTransformer(BaseTransformer):
     the image boundaries, with a specified tolerance for edge cases.
     """
 
-    def __init__(self, tolerance: int = 5, skip_invalid: bool = True):
+    def __init__(self, tolerance: int = 5, skip_invalid: bool = False):
         """
         Initialize the bounding box clipping transformer.
 
@@ -36,6 +36,7 @@ class BoundingBoxClippingTransformer(BaseTransformer):
         self.clipped_count = 0
         self.skipped_count = 0
         self.valid_count = 0
+        self.config = {"tolerance": tolerance, "skip_invalid": skip_invalid}
 
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

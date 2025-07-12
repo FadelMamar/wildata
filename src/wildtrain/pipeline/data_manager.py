@@ -7,8 +7,11 @@ import logging
 import os
 import shutil
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -34,7 +37,7 @@ class DataManager:
     def __init__(
         self,
         path_manager: PathManager,
-        enable_dvc: bool = True,
+        enable_dvc: bool = False,
         dvc_config: Optional[DVCConfig] = None,
     ):
         """
@@ -78,7 +81,6 @@ class DataManager:
         Store a dataset in COCO format with split-based organization.
 
         This method can handle different processing modes:
-        - "standard": Load all data, transform in memory, save everything at once
         - "streaming": Process one image at a time, save immediately
         - "batch": Process images in small batches for memory efficiency
 
@@ -94,6 +96,8 @@ class DataManager:
         Returns:
             Path to the stored dataset info file
         """
+
+        assert processing_mode in ["streaming", "batch"], f"Received: {processing_mode}"
 
         # If no transformation pipeline, use standard storage
         if transformation_pipeline is None:
@@ -112,7 +116,7 @@ class DataManager:
                 save_transformation_metadata,
                 batch_size=1,
             )
-        elif processing_mode == "batch":
+        else:
             print("Applying batch transformation")
             return self.store_dataset_with_batch_transformation(
                 dataset_name,
@@ -238,10 +242,83 @@ class DataManager:
         split_annotations_file = self.path_manager.get_dataset_split_annotations_file(
             dataset_name, split_name
         )
+
         with open(split_annotations_file, "w") as f:
             json.dump(split_data_to_store, f, indent=2)
 
         return str(split_annotations_file)
+
+    def _update_annotation_ids_and_clean(
+        self, coco_json: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update annotation IDs to match new image IDs and discard empty annotations.
+
+        Args:
+            annotations: List of annotation dictionaries
+            images: List of image info dictionaries
+
+        Returns:
+            Cleaned and updated annotations list
+        """
+        # Create mapping from old image IDs to new image IDs
+        cleaned_coco_json = coco_json.copy()
+        images = coco_json["images"]
+        annotations = coco_json["annotations"]
+        assert len(images) == len(
+            annotations
+        ), "Number of images and annotations must be the same"
+        new_images = []
+        new_annotations = []
+
+        for new_id, (image_info, annotation) in enumerate(
+            zip(images, annotations), start=1
+        ):
+            image_info["id"] = new_id
+            new_images.append(image_info)
+            if len(annotation) > 0:
+                for ann in annotation:
+                    ann["image_id"] = new_id
+                    ann["id"] = str(uuid4())
+                new_annotations.extend(annotation)
+
+        cleaned_coco_json["images"] = new_images
+        cleaned_coco_json["annotations"] = new_annotations
+
+        return cleaned_coco_json
+
+    def _is_annotation_valid(self, annotation: Dict[str, Any]) -> bool:
+        """
+        Check if an annotation is valid (not empty).
+
+        Args:
+            annotation: Annotation dictionary
+
+        Returns:
+            True if annotation is valid, False if empty/invalid
+        """
+        # Check for bounding box
+        if "bbox" in annotation and annotation["bbox"]:
+            bbox = annotation["bbox"]
+            if len(bbox) == 4 and all(isinstance(x, (int, float)) for x in bbox):
+                # Check if bbox has valid dimensions
+                if bbox[2] > 0 and bbox[3] > 0:  # width and height > 0
+                    return True
+
+        # Check for segmentation
+        if "segmentation" in annotation and annotation["segmentation"]:
+            segmentation = annotation["segmentation"]
+            if isinstance(segmentation, list) and len(segmentation) > 0:
+                return True
+
+        # Check for keypoints
+        if "keypoints" in annotation and annotation["keypoints"]:
+            keypoints = annotation["keypoints"]
+            if isinstance(keypoints, list) and len(keypoints) > 0:
+                return True
+
+        # If none of the above, consider it empty
+        return False
 
     def _get_transformation_metadata(
         self, transformation_pipeline: TransformationPipeline
@@ -329,7 +406,7 @@ class DataManager:
         dataset_info_file = self._setup_dataset_storage(dataset_name, dataset_info)
 
         # Process each split
-        batch_data_to_store = []
+
         for split_name, split_coco_data in split_data.items():
             self.logger.info(
                 f"Processing split: {split_name} with batch transformation"
@@ -343,6 +420,7 @@ class DataManager:
 
             # Process images in batches
             images_infos = split_coco_data["images"]
+            batch_data_to_store = []
             for i in tqdm(
                 range(0, len(images_infos), batch_size),
                 desc=f"Processing batches for {split_name}",
@@ -357,27 +435,34 @@ class DataManager:
                 )
                 batch_data_to_store.append(batch_data)
 
-        # merge split data
-        split_data_to_store = {
-            "annotations": [],
-            "categories": split_coco_data.get("categories", []),
-            "images": [],
-        }
-        for data in batch_data_to_store:
-            split_data_to_store["annotations"].extend(data["annotations"])
-            split_data_to_store["images"].extend(data["images"])
-
-        if save_transformation_metadata:
-            transformation_metadata = {
-                "pipeline_info": transformation_pipeline.get_pipeline_info(),
-                "transformation_history": transformation_pipeline.get_transformation_history(),
+            # merge split data
+            split_data_to_store = {
+                "annotations": [],
+                "categories": split_coco_data.get("categories", []),
+                "images": [],
             }
-            split_data_to_store["transformation_metadata"] = transformation_metadata
+            for data in batch_data_to_store:
+                split_data_to_store["annotations"].extend(data["annotations"])
+                split_data_to_store["images"].extend(data["images"])
 
-        # Save split data using helper method
-        self._save_coco_json(dataset_name, split_name, split_data_to_store)
+            # Clean and update annotation IDs before saving
+            split_data_to_store = self._update_annotation_ids_and_clean(
+                split_data_to_store
+            )
 
-        self.logger.info(f"Stored dataset '{dataset_name}' with batch transformation")
+            # if save_transformation_metadata:
+            #     transformation_metadata = {
+            #         "pipeline_info": transformation_pipeline.get_pipeline_info(),
+            #         "transformation_history": transformation_pipeline.get_transformation_history(),
+            #     }
+            #     split_data_to_store["transformation_metadata"] = transformation_metadata
+
+            # Save split data using helper method
+            self._save_coco_json(dataset_name, split_name, split_data_to_store)
+
+            self.logger.info(
+                f"Stored dataset {split_name} split of '{dataset_name}' with batch transformation"
+            )
 
         # Track with DVC if enabled
         if track_with_dvc and self.dvc_manager:
@@ -414,30 +499,53 @@ class DataManager:
                 # Handle transformed data
                 for data in result["transformed_data"]:
                     transformed_images.append(data["image"])
-                    transformed_annotations.extend(data["annotations"])
-                    transformed_image_infos.extend(data["info"])
+                    transformed_annotations.append(data["annotations"])
+                    transformed_image_infos.append(data["info"])
             else:
                 # Handle original data (no transformations)
                 transformed_images.append(result["image"])
-                transformed_annotations.extend(result["annotations"])
-                transformed_image_infos.extend([result["info"]])
+                transformed_annotations.append(result["annotations"])
+                transformed_image_infos.append([result["info"]])
 
         # Store split data
         split_data_to_store = {
             "annotations": transformed_annotations,
-            "categories": split_coco_data.get("categories", []),
             "images": transformed_image_infos,
         }
 
-        for image_data, image_info in zip(transformed_images, transformed_image_infos):
-            self._copy_or_save_one_image(
-                image_info,
-                dataset_name=dataset_name,
+        new_paths = self._copy_or_save_batch_images(
+            transformed_images, transformed_image_infos, dataset_name, split_images_dir
+        )
+
+        for image_info, new_path in zip(split_data_to_store["images"], new_paths):
+            image_info["file_name"] = new_path
+
+        # split_data_to_store["images"] = transformed_image_infos
+
+        return split_data_to_store
+
+    def _copy_or_save_batch_images(
+        self,
+        transformed_images: List[np.ndarray],
+        transformed_image_infos: List[Dict[str, Any]],
+        dataset_name: str,
+        split_images_dir: Path,
+    ) -> List[str]:
+        def func(image_info, image_data):
+            return self._copy_or_save_one_image(
+                image_info=image_info,
                 split_images_dir=split_images_dir,
+                dataset_name=dataset_name,
                 image_data=image_data,
             )
 
-        return split_data_to_store
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            new_paths = [
+                p
+                for p in executor.map(func, transformed_image_infos, transformed_images)
+            ]
+
+        return new_paths
 
     def _copy_or_save_one_image(
         self,
@@ -488,13 +596,15 @@ class DataManager:
         )
         split_images_dir.mkdir(parents=True, exist_ok=True)
 
-        for image_info in infos:
-            new_path = self._copy_or_save_one_image(
-                image_info, split_images_dir, dataset_name, image_data=None
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            func = partial(
+                self._copy_or_save_one_image,
+                split_images_dir=split_images_dir,
+                dataset_name=dataset_name,
             )
-            if new_path is None:
-                continue
-            image_info["file_name"] = new_path
+            for i, new_path in enumerate(executor.map(func, infos)):
+                if new_path is not None:
+                    infos[i]["file_name"] = new_path
 
         return split_coco_data
 

@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import tempfile
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -62,7 +63,8 @@ class FrameworkDataManager:
             yolo_path = self._create_yolo_format(dataset_name)
             framework_paths["yolo"] = yolo_path
         except Exception as e:
-            self.logger.error(f"Error creating YOLO format: {e}")
+            self.logger.error(f"Error creating YOLO format: {traceback.format_exc()}")
+            raise e
 
         return framework_paths
 
@@ -156,8 +158,10 @@ class FrameworkDataManager:
                     all_yolo_data["names"] = {cat["id"]: cat["name"] for cat in classes}
 
             except Exception as e:
-                self.logger.warning(f"Could not convert split '{split}': {str(e)}")
-                continue
+                self.logger.warning(
+                    f"Could not convert split '{split}': {traceback.format_exc()}"
+                )
+                raise e
 
         # Save YOLO annotations and data.yaml
         self._save_yolo_annotations(yolo_labels_dir, all_yolo_data)
@@ -217,6 +221,8 @@ class FrameworkDataManager:
             split_dir.mkdir(parents=True, exist_ok=True)
             for image_name, ann_list in split_ann.items():
                 label_file = split_dir / f"{Path(image_name).stem}.txt"
+                if len(ann_list) == 0:
+                    continue
                 with open(label_file, "w") as f:
                     for ann in ann_list:
                         f.write(ann + "\n")
