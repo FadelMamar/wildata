@@ -64,8 +64,6 @@ class TileUtils:
         if channels is not None and C != channels:
             raise ValueError(f"Expected {channels} channels, got {C}")
 
-        # Pad image with patch_size on all sides to ensure complete tile coverage.
-
         # Use unfold to create tiles
         # First unfold along height dimension
         unfolded_h = image.unfold(1, patch_size, stride)
@@ -167,7 +165,7 @@ class TileUtils:
     @staticmethod
     def pad_image_to_patch_size(
         image: torch.Tensor, patch_size: int, stride: int
-    ) -> Tuple[torch.Tensor, int, int]:
+    ) -> torch.Tensor:
         """
         Pad image with patch_size on right and bottom only to ensure complete tile coverage.
         """
@@ -439,16 +437,10 @@ class TilingTransformer(BaseTransformer):
         else:
             file_name = image_info["file_name"]
 
-        # print(f"[DEBUG] Processing file: {file_name}")
-        # print(f"[DEBUG] _transform_once called with {len(annotations)} annotations")
-        # print(f"[DEBUG] Image shape: {image.shape if hasattr(image, 'shape') else 'unknown'}")
-
         # Extract tiles using TileUtils
         tiles, offset_info = TileUtils.get_patches_and_offset_info(
             image_tensor, self.config.tile_size, self.config.stride, file_name=file_name
         )
-
-        # print(f"[DEBUG] Generated {tiles.shape[0]} tiles")
 
         # Convert tiles back to numpy and process annotations
         empty_tiles = []
@@ -464,14 +456,10 @@ class TilingTransformer(BaseTransformer):
             x_end = offset_info["x_end"][i]
             y_end = offset_info["y_end"][i]
 
-            # print(f"[DEBUG] Processing tile {i}: bounds=({x_offset},{y_offset},{x_end},{y_end})")
-
             # Extract annotations for this tile
             tile_annotation = self._extract_tile_annotations(
                 annotations, x_offset, y_offset, x_end, y_end
             )
-
-            # print(f"[DEBUG] Tile {i}: extracted {len(tile_annotation)} annotations")
 
             # Create tile info
             tile_info = {
@@ -508,20 +496,11 @@ class TilingTransformer(BaseTransformer):
                     }
                 )
 
-        # print(f"[DEBUG] Found {len(non_empty_tiles)} non-empty tiles and {len(empty_tiles)} empty tiles")
-
         # Sample tiles based on the empty/non-empty ratio
         selected_tiles = self._sample_tiles_with_ratio(empty_tiles, non_empty_tiles)
 
-        # if len(annotations) > 0:
-        #     pass
+        self._validate_output(selected_tiles, annotations)
 
-        try:
-            self._validate_output(selected_tiles, annotations)
-        except:
-            pass
-
-        # print(f"[DEBUG] Returning {len(selected_tiles)} selected tiles")
         return selected_tiles
 
     def _validate_annotation_preservation(
@@ -611,8 +590,6 @@ class TilingTransformer(BaseTransformer):
         y_end: int,
     ) -> List[Dict[str, Any]]:
         """Extract annotations that fall within the tile bounds."""
-        # print(f"[DEBUG] _extract_tile_annotations called with {len(annotations)} annotations")
-        # print(f"[DEBUG] Tile bounds: ({x_offset}, {y_offset}, {x_end}, {y_end})")
         logger.debug(f"[TILING] Starting extraction for {len(annotations)} annotations")
 
         tile_annotations = []
@@ -659,24 +636,28 @@ class TilingTransformer(BaseTransformer):
                 )
                 raise ValueError(f"Annotation type {type(annotation)} not supported")
 
-        # print(f"[DEBUG] _extract_tile_annotations returning {len(tile_annotations)} annotations")
         return tile_annotations
 
     def _bbox_intersects_tile(
         self, bbox: List[float], x_offset: int, y_offset: int, x_end: int, y_end: int
     ) -> bool:
         """Check if bounding box intersects with tile."""
-        bbox_x, bbox_y, bbox_w, bbox_h = bbox
-        bbox_x_end = bbox_x + bbox_w
-        bbox_y_end = bbox_y + bbox_h
 
-        # Check intersection
-        return (
-            bbox_x < x_end
-            and bbox_x_end > x_offset
-            and bbox_y < y_end
-            and bbox_y_end > y_offset
-        )
+        left, top, width, height = bbox
+
+        right = left + width
+        bottom = top + height
+
+        if left >= x_end:
+            return False
+        if top >= y_end:
+            return False
+        if right <= x_offset:
+            return False
+        if bottom <= y_offset:
+            return False
+
+        return True
 
     def _clip_bbox_to_tile(
         self, bbox: List[float], x_offset: int, y_offset: int, x_end: int, y_end: int
