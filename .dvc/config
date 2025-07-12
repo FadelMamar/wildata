@@ -1,0 +1,6 @@
+[core]
+    remote = dataregistry
+['remote "dataregistry"']
+    url = s3://dvc-storage
+    endpointurl = http://localhost:9000
+    ssl_verify = false
