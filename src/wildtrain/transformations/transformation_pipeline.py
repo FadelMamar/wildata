@@ -137,7 +137,7 @@ class TransformationPipeline:
         return {
             "num_transformers": len(self.transformers),
             "transformer_types": [t.__class__.__name__ for t in self.transformers],
-            "transformer_configs": [t.config for t in self.transformers],
+            "transformer_configs": [vars(t.config) for t in self.transformers],
         }
 
     def save_pipeline_config(self, filepath: str) -> None:
@@ -149,7 +149,7 @@ class TransformationPipeline:
         """
         config = {
             "pipeline_info": self.get_pipeline_info(),
-            "transformer_configs": [t.config for t in self.transformers],
+            "transformer_configs": [vars(t.config) for t in self.transformers],
         }
 
         with open(filepath, "w", encoding="utf-8") as f:
