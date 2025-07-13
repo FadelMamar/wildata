@@ -14,6 +14,13 @@ class YOLOAdapter(BaseAdapter):
     Adapter for converting COCO annotation format to YOLO format.
     """
 
+    def __init__(
+        self,
+        coco_annotation_path: Optional[str] = None,
+        coco_data: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(coco_annotation_path, coco_data)
+
     def convert(self, split: str) -> Dict[str, List[str]]:
         """
         Convert the loaded COCO annotation to YOLO format for the specified split.
