@@ -31,7 +31,7 @@ class PathManager:
     def _setup_directory_structure(self):
         """Setup the standard directory structure."""
         # Data storage (COCO-First design)
-        self.data_dir = self.project_root / "data"
+        self.data_dir = self.project_root
 
         # Framework formats
         self.framework_formats_dir = self.project_root / "framework_formats"
@@ -113,18 +113,16 @@ class PathManager:
                 framework_dir.mkdir(parents=True, exist_ok=True)
 
                 # Create split directories only for existing splits
-                images_dir = self.get_framework_images_dir(dataset_name, framework)
-                annotations_dir = self.get_framework_annotations_dir(
-                    dataset_name, framework
-                )
-
                 # Get existing splits from data
                 existing_splits = self.get_existing_splits(dataset_name)
 
                 for split in existing_splits:
-                    (images_dir / split).mkdir(parents=True, exist_ok=True)
-                    if framework != "coco":
-                        (annotations_dir / split).mkdir(parents=True, exist_ok=True)
+                    self.get_framework_split_image_dir(
+                        dataset_name, framework, split
+                    ).mkdir(parents=True, exist_ok=True)
+                    self.get_framework_split_annotations_dir(
+                        dataset_name, framework, split
+                    ).mkdir(parents=True, exist_ok=True)
 
     def get_existing_splits(self, dataset_name: str) -> List[str]:
         """

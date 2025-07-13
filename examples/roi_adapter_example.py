@@ -12,124 +12,36 @@ This script shows how to:
 from pathlib import Path
 
 from wildtrain.adapters.roi_adapter import ROIAdapter
-from wildtrain.pipeline.loader import Loader
-
-def custom_roi_callback(image_data,image_path=None):
-    """
-    Custom callback function for ROI generation.
-    
-    This function can use any model or algorithm to suggest ROIs.
-    For example, you could use:
-    - A pre-trained object detection model
-    - Saliency detection
-    - Edge detection
-    - Random sampling with heuristics
-    
-    Args:
-        image_path: Path to the image file
-        image_data: OpenCV image data (numpy array)
-        
-    Returns:
-        List of dictionaries with 'bbox' and 'class' keys
-    """
-    # This is a simple example that returns fixed ROIs
-    # In practice, you would use a real model here
-    
-    height, width = image_data.shape[:2]
-    
-    # Example: suggest ROIs based on image size
-    rois = []
-    
-    # Center ROI
-    center_x = width // 2 - 50
-    center_y = height // 2 - 50
-    rois.append({
-        "bbox": [center_x, center_y, 100, 100],
-        "class": "center_object"
-    })
-    
-    # Top-left ROI
-    rois.append({
-        "bbox": [50, 50, 80, 80],
-        "class": "corner_object"
-    })
-    
-    # Bottom-right ROI
-    rois.append({
-        "bbox": [width - 130, height - 130, 80, 80],
-        "class": "corner_object"
-    })
-    
-    return rois
+from wildtrain.pipeline import PathManager,Loader,FrameworkDataManager
+from wildtrain.config import ROIConfig
 
 
-def example_with_callback():
-    """Example using custom callback for ROI generation."""
-    print("\n=== ROI Adapter with Custom Callback ===")
-    
-    # Sample COCO data with no annotations
-    coco_data = {
-        "images": [
-            {
-                "id": 1,
-                "file_name": "unannotated_image.jpg",
-                "width": 640,
-                "height": 480,
-            }
-        ],
-        "annotations": [],  # No annotations
-        "categories": [
-            {"id": 1, "name": "object", "supercategory": "object"},
-        ],
-    }
-    
-    # Create ROI adapter with custom callback
-    adapter = ROIAdapter(
-        coco_data=coco_data,
-        roi_callback=custom_roi_callback,
-        random_roi_count=2,  # Additional random ROIs
-        min_roi_size=48
-    )
-    
-    # Convert to ROI format
-    roi_data = adapter.convert()
-    
-    print(f"Generated {len(roi_data['roi_images'])} ROIs using callback")
-    print(f"Statistics: {roi_data['statistics']}")
-    
-    # Print ROI information
-    for i, roi_image in enumerate(roi_data["roi_images"]):
-        roi_label = roi_data["roi_labels"][i]
-        print(f"ROI {i+1}: {roi_label['class_name']} at {roi_image['bbox']}")
-    
-    return roi_data
-
-
-def example_save_to_disk():
+def main():
     """Example of saving ROI data to disk."""
     print("\n=== Saving ROI Data to Disk ===")
     
-    ROOT = Path(r"D:\workspace\data\demo-dataset\framework_formats\roi")
+    ROOT = Path(r"D:\workspace\data\demo-dataset")
     SOURCE_PATH = r"D:\workspace\savmap\coco\annotations\train.json"
-        
-    # Create output directory
-    image_dir = ROOT / "images"
-    image_dir.mkdir(exist_ok=True,parents=True)
-    
-    labels_dir = ROOT / "labels"
-    labels_dir.mkdir(exist_ok=True,parents=True)  
-    
+
+    roi_config = ROIConfig(random_roi_count=1,
+                                    roi_box_size=128,
+                                    min_roi_size=32,
+                                    dark_threshold=0.5,
+                                    roi_callback=None)
+
     loader = Loader()
     split = "train"
-    dataset_info, split_coco_data = loader.load(SOURCE_PATH, "coco", "roi-demo-savmap", bbox_tolerance=5, split_name=split)
-    
-    coco_data = split_coco_data[split]   
-    adapter = ROIAdapter(coco_data=coco_data,
-                         random_roi_count=1,
-                         roi_box_size=128
-                         )
-    roi_data = adapter.convert()
-    adapter.save(roi_data,output_images_dir=image_dir,output_labels_dir=labels_dir)
+    dataset_name = "roi-demo-savmap"
+
+    dataset_info, split_coco_data = loader.load(SOURCE_PATH, "coco", dataset_name, bbox_tolerance=5, split_name=split)
+
+    path_manager = PathManager(ROOT)
+    framework_data_manager = FrameworkDataManager(path_manager)
+    framework_data_manager.create_roi_format(dataset_name=dataset_name,
+                                                coco_data=split_coco_data[split],
+                                                split=split,
+                                                roi_config=roi_config)
+        
     
     print(f"Saved ROI data to {ROOT}")
     
@@ -142,7 +54,7 @@ if __name__ == "__main__":
         # Run examples
         # example_basic_usage()
         # example_with_callback()
-        example_save_to_disk()
+        main()
         
         print("\n" + "=" * 50)
         print("All examples completed successfully!")

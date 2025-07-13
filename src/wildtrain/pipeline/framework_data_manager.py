@@ -15,6 +15,7 @@ import yaml
 
 from ..adapters.roi_adapter import ROIAdapter
 from ..adapters.yolo_adapter import YOLOAdapter
+from ..config import ROIConfig
 from .path_manager import PathManager
 
 logger = logging.getLogger(__name__)
@@ -167,13 +168,9 @@ class FrameworkDataManager:
     def create_roi_format(
         self,
         dataset_name: str,
-        random_roi_count: int,
-        roi_box_size: int,
-        min_roi_size: int,
+        roi_config: ROIConfig,
         coco_data: Dict[str, Any],
         split: str,
-        roi_callback: Optional[Callable] = None,
-        dark_threshold: float = 0.5,
     ) -> str:
         """Create ROI format for a dataset."""
         # Ensure directories exist
@@ -183,11 +180,11 @@ class FrameworkDataManager:
             # Create adapter for this split
             adapter = ROIAdapter(
                 coco_data=coco_data,
-                random_roi_count=random_roi_count,
-                roi_box_size=roi_box_size,
-                dark_threshold=dark_threshold,
-                min_roi_size=min_roi_size,
-                roi_callback=roi_callback,
+                random_roi_count=roi_config.random_roi_count,
+                roi_box_size=roi_config.roi_box_size,
+                dark_threshold=roi_config.dark_threshold,
+                min_roi_size=roi_config.min_roi_size,
+                roi_callback=roi_config.roi_callback,
             )
             roi_data = adapter.convert()
 

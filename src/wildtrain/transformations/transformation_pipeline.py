@@ -147,10 +147,7 @@ class TransformationPipeline:
         Args:
             filepath: Path to save configuration
         """
-        config = {
-            "pipeline_info": self.get_pipeline_info(),
-            "transformer_configs": [vars(t.config) for t in self.transformers],
-        }
+        config = self.get_pipeline_info()
 
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
