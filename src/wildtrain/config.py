@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 ROOT = Path(__file__).parents[2]
 
@@ -80,7 +80,9 @@ class TilingConfig:
 
 
 @dataclass
-class TransformationConfig:
-    augmentation: Optional[AugmentationConfig] = None
-    tiling: Optional[TilingConfig] = None
-    # Add more transformation configs as needed
+class ROIConfig:
+    random_roi_count: int = 1
+    roi_box_size: int = 128
+    min_roi_size: int = 32
+    dark_threshold: float = 0.5
+    roi_callback: Optional[Callable] = None

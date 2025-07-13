@@ -75,7 +75,6 @@ class DataManager:
         track_with_dvc: bool = False,
         transformation_pipeline: Optional[TransformationPipeline] = None,
         processing_mode: str = "standard",
-        save_transformation_metadata: bool = True,
     ) -> str:
         """
         Store a dataset in COCO format with split-based organization.
@@ -113,7 +112,6 @@ class DataManager:
                 split_data,
                 transformation_pipeline,
                 track_with_dvc,
-                save_transformation_metadata,
                 batch_size=1,
             )
         else:
@@ -124,7 +122,6 @@ class DataManager:
                 split_data,
                 transformation_pipeline,
                 track_with_dvc,
-                save_transformation_metadata,
                 batch_size=10,
             )
 
@@ -381,7 +378,6 @@ class DataManager:
         split_data: Dict[str, Dict[str, Any]],
         transformation_pipeline: TransformationPipeline,
         track_with_dvc: bool = False,
-        save_transformation_metadata: bool = True,
         batch_size: int = 10,
     ) -> str:
         """
@@ -396,7 +392,6 @@ class DataManager:
             split_data: Dictionary mapping split names to COCO format data
             transformation_pipeline: Transformation pipeline to apply
             track_with_dvc: Whether to track the dataset with DVC
-            save_transformation_metadata: Whether to save transformation metadata
             batch_size: Number of images to process in each batch
 
         Returns:
@@ -450,12 +445,11 @@ class DataManager:
                 split_data_to_store
             )
 
-            # if save_transformation_metadata:
-            #     transformation_metadata = {
-            #         "pipeline_info": transformation_pipeline.get_pipeline_info(),
-            #         "transformation_history": transformation_pipeline.get_transformation_history(),
-            #     }
-            #     split_data_to_store["transformation_metadata"] = transformation_metadata
+            # save_transformation_metadata
+            transformation_metadata = {
+                "transformation_history": transformation_pipeline.get_transformation_history(),
+            }
+            split_data_to_store["transformation_metadata"] = transformation_metadata
 
             # Save split data using helper method
             self._save_coco_json(dataset_name, split_name, split_data_to_store)

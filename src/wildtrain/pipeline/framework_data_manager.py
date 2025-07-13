@@ -9,7 +9,7 @@ import shutil
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
@@ -52,27 +52,12 @@ class FrameworkDataManager:
         """
         framework_paths = {}
 
-        # Create COCO format
-        # try:
-        #     coco_path = self._create_coco_format(dataset_name)
-        #     framework_paths["coco"] = coco_path
-        # except Exception as e:
-        #     self.logger.error(f"Error creating COCO format: {e}")
-
         # Create YOLO format
         try:
             yolo_path = self._create_yolo_format(dataset_name)
             framework_paths["yolo"] = yolo_path
         except Exception as e:
             self.logger.error(f"Error creating YOLO format: {traceback.format_exc()}")
-            raise e
-
-        # Create ROI format
-        try:
-            roi_path = self._create_roi_format(dataset_name)
-            framework_paths["roi"] = roi_path
-        except Exception as e:
-            print(f"Error creating ROI format: {traceback.format_exc()}")
             raise e
 
         return framework_paths
@@ -179,57 +164,55 @@ class FrameworkDataManager:
         self.logger.info(f"Created YOLO format for dataset '{dataset_name}'")
         return str(yolo_dir)
 
-    def _create_roi_format(self, dataset_name: str) -> str:
+    def create_roi_format(
+        self,
+        dataset_name: str,
+        random_roi_count: int,
+        roi_box_size: int,
+        min_roi_size: int,
+        coco_data: Dict[str, Any],
+        split: str,
+        roi_callback: Optional[Callable] = None,
+        dark_threshold: float = 0.5,
+    ) -> str:
         """Create ROI format for a dataset."""
         # Ensure directories exist
         self.path_manager.ensure_directories(dataset_name, ["roi"])
 
-        # Get paths using PathManager
-        # Generate ROI annotations using adapter for each split
-        existing_splits = self.path_manager.get_existing_splits(dataset_name)
-        dataset_info = self._load_dataset_info(dataset_name)
+        try:
+            # Create adapter for this split
+            adapter = ROIAdapter(
+                coco_data=coco_data,
+                random_roi_count=random_roi_count,
+                roi_box_size=roi_box_size,
+                dark_threshold=dark_threshold,
+                min_roi_size=min_roi_size,
+                roi_callback=roi_callback,
+            )
+            roi_data = adapter.convert()
 
-        for split in existing_splits:
-            try:
-                # Load split COCO data
-                split_ann_file = self.path_manager.get_dataset_split_annotations_file(
-                    dataset_name, split
-                )
-                if not split_ann_file.exists():
-                    continue
+            images_dir = self.path_manager.get_framework_split_image_dir(
+                dataset_name, "roi", split
+            )
+            images_dir.mkdir(parents=True, exist_ok=True)
 
-                with open(split_ann_file, "r") as f:
-                    split_coco_data = json.load(f)
+            labels_dir = self.path_manager.get_framework_split_annotations_dir(
+                dataset_name, "roi", split
+            )
+            labels_dir.mkdir(parents=True, exist_ok=True)
 
-                # Create adapter for this split
-                adapter = ROIAdapter(coco_data=split_coco_data)
-                adapter.load_coco_annotation()
+            # Save ROI data
+            adapter.save(
+                roi_data,
+                output_labels_dir=labels_dir,
+                output_images_dir=images_dir,
+            )
 
-                # Convert to ROI format
-                split_roi = adapter.convert()
-
-                images_dir = self.path_manager.get_framework_split_image_dir(
-                    dataset_name, "roi", split
-                )
-                images_dir.mkdir(parents=True, exist_ok=True)
-
-                labels_dir = self.path_manager.get_framework_split_annotations_dir(
-                    dataset_name, "roi", split
-                )
-                labels_dir.mkdir(parents=True, exist_ok=True)
-
-                # Save ROI data
-                adapter.save(
-                    split_roi,
-                    output_labels_dir=labels_dir,
-                    output_images_dir=images_dir,
-                )
-
-            except Exception as e:
-                self.logger.warning(
-                    f"Could not convert split '{split}' to ROI format: {traceback.format_exc()}"
-                )
-                raise e
+        except Exception as e:
+            self.logger.warning(
+                f"Could not convert split '{split}' to ROI format: {traceback.format_exc()}"
+            )
+            raise e
 
         self.logger.info(f"Created ROI format for dataset '{dataset_name}'")
         return str(self.path_manager.get_framework_format_dir(dataset_name, "roi"))

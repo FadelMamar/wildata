@@ -7,9 +7,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import cv2
-from tqdm import tqdm
-
+from ..config import ROIConfig
 from ..logging_config import get_logger
 from ..transformations.transformation_pipeline import TransformationPipeline
 from .data_manager import DataManager
@@ -70,92 +68,15 @@ class DataPipeline:
         # Initialize framework data manager
         self.framework_data_manager = FrameworkDataManager(self.path_manager)
 
-    def import_dataset(
-        self,
-        source_path: str,
-        source_format: str,
-        dataset_name: str,
-        apply_transformations: bool = False,
-        track_with_dvc: bool = False,
-        bbox_tolerance: int = 5,
-    ) -> Dict[str, Any]:
-        """
-        Import a dataset from source format to COCO format.
-
-        Args:
-            source_path: Path to source dataset
-            source_format: Format of source dataset ('coco' or 'yolo')
-            dataset_name: Name for the dataset in COCO format
-            apply_transformations: Whether to apply transformations during import
-            track_with_dvc: Whether to track the dataset with DVC
-
-        Returns:
-            Dictionary with import result information
-        """
-        print(
-            f"[DEBUG] Starting import_dataset: {source_path}, {source_format}, {dataset_name}"
-        )
-        try:
-            self.logger.info(
-                f"Importing dataset from {source_path} ({source_format} format)"
-            )
-
-            # Load and validate dataset
-            dataset_info, split_data = self._load_and_validate_dataset(
-                source_path, source_format, dataset_name, bbox_tolerance
-            )
-
-            # Store dataset using data manager with transformation options
-            print("[DEBUG] Storing dataset with data manager")
-            dataset_info_path = self.data_manager.store_dataset(
-                dataset_name=dataset_name,
-                dataset_info=dataset_info,
-                split_data=split_data,
-                track_with_dvc=track_with_dvc,
-                transformation_pipeline=self.transformation_pipeline
-                if apply_transformations
-                else None,
-                processing_mode="standard",
-                save_transformation_metadata=False,
-            )
-
-            # Create framework formats using framework data manager
-            print("[DEBUG] Creating framework formats")
-            framework_paths = self.framework_data_manager.create_framework_formats(
-                dataset_name
-            )
-
-            self.logger.info(f"Successfully imported dataset '{dataset_name}'")
-            print(f"[DEBUG] import_dataset completed successfully for {dataset_name}")
-            return {
-                "success": True,
-                "dataset_name": dataset_name,
-                "dataset_info_path": dataset_info_path,
-                "framework_paths": framework_paths,
-                "dvc_tracked": track_with_dvc
-                and self.data_manager.dvc_manager is not None,
-            }
-
-        except Exception as e:
-            self.logger.error(f"Error importing dataset: {str(e)}")
-            print(f"[DEBUG] Exception in import_dataset: {traceback.format_exc()}")
-            return {
-                "success": False,
-                "error": str(e),
-                "validation_errors": [],
-                "hints": [],
-            }
-
     def import_dataset_with_options(
         self,
         source_path: str,
         source_format: str,
         dataset_name: str,
-        processing_mode: str = "standard",  # "standard", "streaming", "batch"
-        apply_transformations: bool = False,
+        processing_mode: str = "batch",  # "streaming", "batch"
         track_with_dvc: bool = False,
         bbox_tolerance: int = 5,
-        save_transformation_metadata: bool = True,
+        roi_config: Optional[ROIConfig] = None,
     ) -> Dict[str, Any]:
         """
         Import dataset with enhanced transformation-storage integration.
@@ -164,11 +85,10 @@ class DataPipeline:
             source_path: Path to source dataset
             source_format: Format of source dataset ('coco' or 'yolo')
             dataset_name: Name for the dataset in COCO format
-            processing_mode: Processing mode ('standard', 'streaming', 'batch')
+            processing_mode: Processing mode ('streaming', 'batch')
             apply_transformations: Whether to apply transformations during import
             track_with_dvc: Whether to track the dataset with DVC
             bbox_tolerance: Tolerance for bbox validation
-            save_transformation_metadata: Whether to save transformation metadata
 
         Returns:
             Dictionary with import result information
@@ -176,6 +96,11 @@ class DataPipeline:
         print(
             f"[DEBUG] Starting import_dataset_with_options: {source_path}, {source_format}, {dataset_name}, mode={processing_mode}"
         )
+
+        assert processing_mode in [
+            "streaming",
+            "batch",
+        ], f"Invalid processing mode: {processing_mode}"
 
         try:
             self.logger.info(
@@ -200,6 +125,18 @@ class DataPipeline:
                     "hints": [],
                 }
 
+            if roi_config:
+                self.framework_data_manager.create_roi_format(
+                    dataset_name=dataset_name,
+                    random_roi_count=roi_config.random_roi_count,
+                    roi_box_size=roi_config.roi_box_size,
+                    min_roi_size=roi_config.min_roi_size,
+                    coco_data=split_data[self.split_name],
+                    split=self.split_name,
+                    roi_callback=roi_config.roi_callback,
+                    dark_threshold=roi_config.dark_threshold,
+                )
+
             # Store dataset using data manager with transformation options
             print("[DEBUG] Storing dataset with data manager")
             dataset_info_path = self.data_manager.store_dataset(
@@ -207,15 +144,8 @@ class DataPipeline:
                 dataset_info=dataset_info,
                 split_data=split_data,
                 track_with_dvc=track_with_dvc,
-                transformation_pipeline=self.transformation_pipeline
-                if apply_transformations
-                else None,
-                processing_mode=processing_mode
-                if apply_transformations
-                else "standard",
-                save_transformation_metadata=save_transformation_metadata
-                if apply_transformations
-                else False,
+                transformation_pipeline=self.transformation_pipeline,
+                processing_mode=processing_mode,
             )
 
             # Create framework formats

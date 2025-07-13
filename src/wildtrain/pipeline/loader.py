@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from ..converters.yolo_to_master import YOLOToMasterConverter
 from ..validators.coco_validator import COCOValidator
@@ -22,7 +22,7 @@ class Loader:
         dataset_name: str,
         bbox_tolerance: int,
         split_name: str,
-    ):
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if split_name not in ["train", "val", "test"]:
             raise ValueError(f"Invalid split name: {split_name}")
 
@@ -42,7 +42,7 @@ class Loader:
         coco_data: Dict[str, Any],
         dataset_name: str,
         image_dir: Path,
-    ) -> tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Load COCO annotation file and convert to split-based format.
 
@@ -101,7 +101,7 @@ class Loader:
         source_format: str,
         dataset_name: str,
         bbox_tolerance: int,
-    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Dict[str, Any]]]]:
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Load and validate dataset based on source format.
 
@@ -115,8 +115,7 @@ class Loader:
                 bbox_tolerance=bbox_tolerance
             )
             if not is_valid:
-                print("[DEBUG] COCO validation failed")
-                return None, None
+                raise ValueError("COCO validation failed")
 
             # Load COCO data and convert to split-based structure
             coco_data = self._load_json(source_path)
@@ -136,8 +135,7 @@ class Loader:
             validator = YOLOValidator(source_path)
             is_valid, errors, warnings = validator.validate()
             if not is_valid:
-                print("[DEBUG] YOLO validation failed")
-                return None, None
+                raise ValueError("YOLO validation failed")
 
             # Create converter and convert YOLO to COCO format
             converter = YOLOToMasterConverter(source_path)
