@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 
 import yaml
 
+from ..adapters.roi_adapter import ROIAdapter
 from ..adapters.yolo_adapter import YOLOAdapter
 from .path_manager import PathManager
 
@@ -64,6 +65,14 @@ class FrameworkDataManager:
             framework_paths["yolo"] = yolo_path
         except Exception as e:
             self.logger.error(f"Error creating YOLO format: {traceback.format_exc()}")
+            raise e
+
+        # Create ROI format
+        try:
+            roi_path = self._create_roi_format(dataset_name)
+            framework_paths["roi"] = roi_path
+        except Exception as e:
+            print(f"Error creating ROI format: {traceback.format_exc()}")
             raise e
 
         return framework_paths
@@ -170,6 +179,61 @@ class FrameworkDataManager:
         self.logger.info(f"Created YOLO format for dataset '{dataset_name}'")
         return str(yolo_dir)
 
+    def _create_roi_format(self, dataset_name: str) -> str:
+        """Create ROI format for a dataset."""
+        # Ensure directories exist
+        self.path_manager.ensure_directories(dataset_name, ["roi"])
+
+        # Get paths using PathManager
+        # Generate ROI annotations using adapter for each split
+        existing_splits = self.path_manager.get_existing_splits(dataset_name)
+        dataset_info = self._load_dataset_info(dataset_name)
+
+        for split in existing_splits:
+            try:
+                # Load split COCO data
+                split_ann_file = self.path_manager.get_dataset_split_annotations_file(
+                    dataset_name, split
+                )
+                if not split_ann_file.exists():
+                    continue
+
+                with open(split_ann_file, "r") as f:
+                    split_coco_data = json.load(f)
+
+                # Create adapter for this split
+                adapter = ROIAdapter(coco_data=split_coco_data)
+                adapter.load_coco_annotation()
+
+                # Convert to ROI format
+                split_roi = adapter.convert()
+
+                images_dir = self.path_manager.get_framework_split_image_dir(
+                    dataset_name, "roi", split
+                )
+                images_dir.mkdir(parents=True, exist_ok=True)
+
+                labels_dir = self.path_manager.get_framework_split_annotations_dir(
+                    dataset_name, "roi", split
+                )
+                labels_dir.mkdir(parents=True, exist_ok=True)
+
+                # Save ROI data
+                adapter.save(
+                    split_roi,
+                    output_labels_dir=labels_dir,
+                    output_images_dir=images_dir,
+                )
+
+            except Exception as e:
+                self.logger.warning(
+                    f"Could not convert split '{split}' to ROI format: {traceback.format_exc()}"
+                )
+                raise e
+
+        self.logger.info(f"Created ROI format for dataset '{dataset_name}'")
+        return str(self.path_manager.get_framework_format_dir(dataset_name, "roi"))
+
     def _create_image_symlinks(self, dataset_name: str, target_dir: Path):
         """Create symlinks for images in the target directory."""
         logger.info(f"Creating symlinks for images in {target_dir}")
@@ -249,7 +313,7 @@ class FrameworkDataManager:
 
         Args:
             dataset_name: Name of the dataset
-            framework: Framework name ('coco' or 'yolo')
+            framework: Framework name ('coco', 'yolo', or 'roi')
 
         Returns:
             Dictionary with export information
@@ -258,6 +322,8 @@ class FrameworkDataManager:
             path = self._create_coco_format(dataset_name)
         elif framework.lower() == "yolo":
             path = self._create_yolo_format(dataset_name)
+        elif framework.lower() == "roi":
+            path = self._create_roi_format(dataset_name)
         else:
             raise ValueError(f"Unsupported framework: {framework}")
         return {"framework": framework, "path": path}
@@ -273,7 +339,7 @@ class FrameworkDataManager:
             List of framework format information
         """
         formats = []
-        for framework in ["coco", "yolo"]:
+        for framework in ["coco", "yolo", "roi"]:
             exists = self.path_manager.framework_format_exists(dataset_name, framework)
             formats.append({"framework": framework, "exists": exists})
         return formats

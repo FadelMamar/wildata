@@ -35,6 +35,7 @@ class DataPipeline:
     def __init__(
         self,
         root: str,
+        split_name: str,
         transformation_pipeline: Optional[TransformationPipeline] = None,
         enable_dvc: bool = True,
     ):
@@ -48,6 +49,13 @@ class DataPipeline:
         """
         self.root = Path(root)
         self.logger = get_logger(self.__class__.__name__)
+        self.split_name = split_name
+
+        assert split_name in [
+            "train",
+            "val",
+            "test",
+        ], f"Invalid split name: {split_name}"
 
         # Initialize path manager for consistent path resolution
         self.path_manager = PathManager(self.root)
@@ -274,8 +282,8 @@ class DataPipeline:
         annotations_by_split = {}
 
         # Determine split for each image (simple logic - can be improved)
+        split = self.split_name
         for image in coco_data.get("images", []):
-            split = self._determine_split_from_image(image, coco_annotation_path)
             path = image_dir / split / Path(image["file_name"]).name
             image["file_name"] = str(Path(path).resolve())
             if split not in images_by_split:
@@ -346,33 +354,6 @@ class DataPipeline:
             raise ValueError(f"Unsupported source format: {source_format}")
 
         return dataset_info, split_data
-
-    def _determine_split_from_image(
-        self, image: Dict[str, Any], annotation_path: str
-    ) -> str:
-        """
-        Determine split for an image based on file path or annotation path.
-
-        Args:
-            image: COCO image object
-            annotation_path: Path to annotation file
-
-        Returns:
-            Split name (train, val, test)
-        """
-        file_name = image.get("file_name", "").lower()
-        annotation_path_lower = annotation_path.lower()
-
-        if (
-            "val" in file_name
-            or "validation" in file_name
-            or "val" in annotation_path_lower
-        ):
-            return "val"
-        elif "test" in file_name or "test" in annotation_path_lower:
-            return "test"
-        else:
-            return "train"
 
     def export_dataset(
         self, dataset_name: str, target_format: str, target_path: str

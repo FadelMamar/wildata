@@ -1,0 +1,495 @@
+import json
+import logging
+import os
+import random
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+import cv2
+import numpy as np
+from PIL import Image
+
+from .base_adapter import BaseAdapter
+
+logger = logging.getLogger(__name__)
+
+
+class ROIAdapter(BaseAdapter):
+    """
+    Adapter for converting COCO annotation format to ROI classification format.
+
+    This adapter extracts bounding boxes from object detection annotations
+    and converts them into individual classification images with JSON labels.
+    """
+
+    def __init__(
+        self,
+        coco_annotation_path: Optional[str] = None,
+        coco_data: Optional[Dict[str, Any]] = None,
+        roi_callback: Optional[Callable] = None,
+        random_roi_count: int = 5,
+        roi_box_size: int = 128,
+        min_roi_size: int = 32,
+        background_class: str = "background",
+        save_format: str = "jpg",
+        quality: int = 95,
+    ):
+        """
+        Initialize the ROI adapter.
+
+        Args:
+            coco_annotation_path: Path to COCO annotation file
+            coco_data: COCO data dictionary
+            roi_callback: Custom function to generate ROIs for unannotated images
+            random_roi_count: Number of random ROIs to generate for unannotated images
+            roi_padding: Extra padding around bounding boxes (as fraction of bbox size)
+            min_roi_size: Minimum ROI size in pixels
+            background_class: Class name for random ROIs
+            save_format: Image format for ROI crops
+            quality: JPEG quality (1-100)
+        """
+        super().__init__(coco_annotation_path, coco_data)
+
+        self.roi_callback = roi_callback
+        self.random_roi_count = random_roi_count
+        self.roi_box_size = roi_box_size
+        self.min_roi_size = min_roi_size
+        self.background_class = background_class
+        self.save_format = save_format
+        self.quality = quality
+
+        # Load COCO data if not provided
+        if self.coco_data is None:
+            self.load_coco_annotation()
+
+    def convert(self) -> Dict[str, Any]:
+        """
+        Convert the loaded COCO annotation to ROI format for the specified split.
+
+        Args:
+            split (str): The data split to convert (e.g., 'train', 'val', 'test').
+
+        Returns:
+            Dict[str, Any]: ROI data containing:
+                - 'roi_images': List of ROI image information
+                - 'roi_labels': List of ROI label information
+                - 'class_mapping': Mapping of class IDs to names
+                - 'statistics': Processing statistics
+        """
+        images = self.coco_data.get("images", [])
+        annotations = self.coco_data.get("annotations", [])
+        categories = self.coco_data.get("categories", [])
+
+        # Create class mapping
+        class_mapping = {cat["id"]: cat["name"] for cat in categories}
+
+        # Group annotations by image
+        annotations_by_image = {}
+        for ann in annotations:
+            image_id = ann["image_id"]
+            if image_id not in annotations_by_image:
+                annotations_by_image[image_id] = []
+            annotations_by_image[image_id].append(ann)
+
+        roi_images = []
+        roi_labels = []
+        roi_counter = 0
+        statistics = {
+            "total_images": len(images),
+            "annotated_images": 0,
+            "unannotated_images": 0,
+            "total_rois": 0,
+            "rois_from_annotations": 0,
+            "rois_from_callback": 0,
+            "rois_from_random": 0,
+        }
+
+        for image in images:
+            image_id = image["id"]
+            image_path = image["file_name"]
+            width = image["width"]
+            height = image["height"]
+
+            # Get annotations for this image
+            image_annotations = annotations_by_image.get(image_id, [])
+
+            if image_annotations:
+                # Extract ROIs from annotations
+                statistics["annotated_images"] += 1
+                image_rois = self._extract_rois_from_annotations(
+                    image_annotations, image, roi_counter
+                )
+                roi_images.extend(image_rois["roi_images"])
+                roi_labels.extend(image_rois["roi_labels"])
+                roi_counter = image_rois["next_counter"]
+                statistics["rois_from_annotations"] += len(image_rois["roi_images"])
+                statistics["total_rois"] += len(image_rois["roi_images"])
+            else:
+                # Generate ROIs for unannotated image
+                statistics["unannotated_images"] += 1
+                image_rois = self._generate_rois_for_unannotated_image(
+                    image, roi_counter
+                )
+                roi_images.extend(image_rois["roi_images"])
+                roi_labels.extend(image_rois["roi_labels"])
+                roi_counter = image_rois["next_counter"]
+                statistics["rois_from_callback"] += image_rois["callback_rois"]
+                statistics["rois_from_random"] += image_rois["random_rois"]
+                statistics["total_rois"] += len(image_rois["roi_images"])
+
+        return {
+            "roi_images": roi_images,
+            "roi_labels": roi_labels,
+            "class_mapping": class_mapping,
+            "statistics": statistics,
+        }
+
+    def save(
+        self,
+        roi_data: Dict[str, Any],
+        output_labels_dir: str | Path,
+        output_images_dir: str | Path,
+    ) -> None:
+        """
+        Save the ROI-formatted data to the output directory.
+
+        Args:
+            roi_data (Dict[str, Any]): ROI data from convert method
+            output_path (Optional[str]): Directory to save the ROI data
+        """
+        if not roi_data or not roi_data.get("roi_images"):
+            logger.warning("No ROI data to save")
+            return
+
+        # Save ROI images
+        self.save_roi_images(roi_data["roi_images"], output_images_dir)
+
+        # Save ROI labels as JSON
+        labels_dir = Path(output_labels_dir)
+        self._save_roi_labels_json(roi_data["roi_labels"], labels_dir)
+
+        # Save class mapping
+        self._save_class_mapping(roi_data["class_mapping"], labels_dir)
+
+        # Save statistics
+        self._save_statistics(roi_data["statistics"], labels_dir)
+
+        logger.info(
+            f"Saved {len(roi_data['roi_images'])} ROI images to {output_images_dir}"
+        )
+
+    def _extract_rois_from_annotations(
+        self, annotations: List[Dict], image: Dict, start_counter: int
+    ) -> Dict[str, Any]:
+        """
+        Extract ROIs from existing annotations.
+
+        Args:
+            annotations: List of annotations for the image
+            image: Image information
+            start_counter: Starting counter for ROI IDs
+
+        Returns:
+            Dictionary with ROI images, labels, and next counter
+        """
+        roi_images = []
+        roi_labels = []
+        counter = start_counter
+
+        image_path = image["file_name"]
+        width = image["width"]
+        height = image["height"]
+
+        # Load image for cropping
+        try:
+            with Image.open(image_path) as img:
+                width, height = img.size
+        except Exception as e:
+            logger.warning(f"Error loading image {image_path}: {e}")
+            return {"roi_images": [], "roi_labels": [], "next_counter": counter}
+
+        for ann in annotations:
+            bbox = ann.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+
+            x, y, w, h = bbox
+            category_id = ann.get("category_id")
+
+            # Apply padding
+            pad_x = self.roi_box_size // 2
+            pad_y = self.roi_box_size // 2
+
+            # Calculate padded coordinates
+            x1 = max(0, int(x - pad_x))
+            y1 = max(0, int(y - pad_y))
+            x2 = min(width, int(x + w + pad_x))
+            y2 = min(height, int(y + h + pad_y))
+
+            # Check minimum size
+            if (x2 - x1) < self.min_roi_size or (y2 - y1) < self.min_roi_size:
+                continue
+
+            # Generate ROI filename
+            roi_filename = f"roi_{counter:06d}.{self.save_format}"
+
+            # Create ROI image info
+            roi_image_info = {
+                "roi_id": counter,
+                "roi_filename": roi_filename,
+                "original_image_path": image_path,
+                "original_image_id": image["id"],
+                "bbox": [x1, y1, x2, y2],
+                "original_bbox": bbox,
+                "width": x2 - x1,
+                "height": y2 - y1,
+            }
+
+            # Create ROI label info
+            roi_label_info = {
+                "roi_id": counter,
+                "class_id": category_id,
+                "class_name": self._get_class_name(category_id),
+                "original_annotation_id": ann.get("id"),
+            }
+
+            roi_images.append(roi_image_info)
+            roi_labels.append(roi_label_info)
+            counter += 1
+
+        return {
+            "roi_images": roi_images,
+            "roi_labels": roi_labels,
+            "next_counter": counter,
+        }
+
+    def _generate_rois_for_unannotated_image(
+        self, image: Dict, start_counter: int
+    ) -> Dict[str, Any]:
+        """
+        Generate ROIs for unannotated image using callback or random generation.
+
+        Args:
+            image: Image information
+            start_counter: Starting counter for ROI IDs
+
+        Returns:
+            Dictionary with ROI images, labels, and statistics
+        """
+        roi_images = []
+        roi_labels = []
+        counter = start_counter
+        callback_rois = 0
+        random_rois = 0
+
+        image_path = image["file_name"]
+        width = image["width"]
+        height = image["height"]
+
+        # Try callback first
+        if self.roi_callback:
+            try:
+                # Load image for callback
+                img = cv2.imread(image_path)
+                if img is not None:
+                    callback_bboxes = self.roi_callback(image_path, img)
+                    if callback_bboxes:
+                        for bbox_info in callback_bboxes:
+                            bbox = bbox_info.get("bbox")
+                            class_name = bbox_info.get("class", self.background_class)
+
+                            if bbox and len(bbox) == 4:
+                                roi_result = self._create_roi_from_bbox(
+                                    image, bbox, class_name, counter
+                                )
+                                if roi_result:
+                                    roi_images.append(roi_result["roi_image"])
+                                    roi_labels.append(roi_result["roi_label"])
+                                    counter = roi_result["next_counter"]
+                                    callback_rois += 1
+            except Exception as e:
+                logger.warning(f"Error in ROI callback for {image_path}: {e}")
+
+        # Generate random ROIs if needed
+        remaining_rois = self.random_roi_count - callback_rois
+        if remaining_rois > 0:
+            for _ in range(remaining_rois):
+                roi_result = self._create_random_roi(image, counter)
+                if roi_result:
+                    roi_images.append(roi_result["roi_image"])
+                    roi_labels.append(roi_result["roi_label"])
+                    counter = roi_result["next_counter"]
+                    random_rois += 1
+
+        return {
+            "roi_images": roi_images,
+            "roi_labels": roi_labels,
+            "next_counter": counter,
+            "callback_rois": callback_rois,
+            "random_rois": random_rois,
+        }
+
+    def _create_roi_from_bbox(
+        self, image: Dict, bbox: List[Union[int, float]], class_name: str, counter: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create ROI from bounding box coordinates.
+
+        Args:
+            image: Image information
+            bbox: Bounding box [x, y, w, h]
+            class_name: Class name for the ROI
+            counter: ROI counter
+
+        Returns:
+            Dictionary with ROI image, label, and next counter, or None if failed
+        """
+        x, y, w, h = bbox
+        width = image["width"]
+        height = image["height"]
+
+        # Apply padding
+        pad_x = w * self.roi_padding
+        pad_y = h * self.roi_padding
+
+        # Calculate padded coordinates
+        x1 = max(0, int(x - pad_x))
+        y1 = max(0, int(y - pad_y))
+        x2 = min(width, int(x + w + pad_x))
+        y2 = min(height, int(y + h + pad_y))
+
+        # Check minimum size
+        if (x2 - x1) < self.min_roi_size or (y2 - y1) < self.min_roi_size:
+            return None
+
+        # Generate ROI filename
+        roi_filename = f"roi_{counter:06d}.{self.save_format}"
+
+        # Create ROI image info
+        roi_image_info = {
+            "roi_id": counter,
+            "roi_filename": roi_filename,
+            "original_image_path": image["file_name"],
+            "original_image_id": image["id"],
+            "bbox": [x1, y1, x2, y2],
+            "original_bbox": bbox,
+            "width": x2 - x1,
+            "height": y2 - y1,
+        }
+
+        # Create ROI label info
+        roi_label_info = {
+            "roi_id": counter,
+            "class_name": class_name,
+            "class_id": self._get_class_id(class_name),
+        }
+
+        return {
+            "roi_image": roi_image_info,
+            "roi_label": roi_label_info,
+            "next_counter": counter + 1,
+        }
+
+    def _create_random_roi(self, image: Dict, counter: int) -> Optional[Dict[str, Any]]:
+        """
+        Create a random ROI for unannotated image.
+
+        Args:
+            image: Image information
+            counter: ROI counter
+
+        Returns:
+            Dictionary with ROI image, label, and next counter, or None if failed
+        """
+        width = image["width"]
+        height = image["height"]
+
+        # Generate random bbox
+        max_w = min(width // 2, width - self.min_roi_size)
+        max_h = min(height // 2, height - self.min_roi_size)
+
+        if max_w < self.min_roi_size or max_h < self.min_roi_size:
+            return None
+
+        w = random.randint(self.min_roi_size, max_w)
+        h = random.randint(self.min_roi_size, max_h)
+        x = random.randint(0, width - w)
+        y = random.randint(0, height - h)
+
+        bbox = [x, y, w, h]
+
+        return self._create_roi_from_bbox(image, bbox, self.background_class, counter)
+
+    def save_roi_images(self, roi_images: List[Dict], output_dir: Path | str) -> None:
+        """Save ROI images to disk."""
+
+        if isinstance(output_dir, str):
+            output_dir = Path(output_dir)
+
+        for roi_info in roi_images:
+            try:
+                # Load original image
+                img = cv2.imread(roi_info["original_image_path"])
+                if img is None:
+                    continue
+
+                # Crop ROI
+                x1, y1, x2, y2 = roi_info["bbox"]
+                roi_img = img[y1:y2, x1:x2]
+
+                # Save ROI image
+                roi_path = output_dir / roi_info["roi_filename"]
+                cv2.imwrite(
+                    str(roi_path), roi_img, [cv2.IMWRITE_JPEG_QUALITY, self.quality]
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"Error saving ROI image {roi_info['roi_filename']}: {e}"
+                )
+
+    def _save_roi_labels_json(
+        self, labels_data: Dict[str, Any], output_dir: Path
+    ) -> None:
+        """Save ROI labels as JSON file."""
+        labels_file = output_dir / "roi_labels.json"
+
+        with open(labels_file, "w", encoding="utf-8") as f:
+            json.dump(labels_data, f, indent=2, ensure_ascii=False)
+
+    def _save_class_mapping(
+        self, class_mapping: Dict[int, str], output_dir: Path
+    ) -> None:
+        """Save class mapping to separate file."""
+        mapping_file = output_dir / "class_mapping.json"
+
+        with open(mapping_file, "w", encoding="utf-8") as f:
+            json.dump(class_mapping, f, indent=2, ensure_ascii=False)
+
+    def _save_statistics(self, statistics: Dict[str, Any], output_dir: Path) -> None:
+        """Save processing statistics to separate file."""
+        stats_file = output_dir / "statistics.json"
+
+        with open(stats_file, "w", encoding="utf-8") as f:
+            json.dump(statistics, f, indent=2, ensure_ascii=False)
+
+    def _get_class_name(self, class_id: Optional[int]) -> str:
+        """Get class name from class ID."""
+        if class_id is None:
+            return "unknown"
+        categories = self.coco_data.get("categories", [])
+        for cat in categories:
+            if cat["id"] == class_id:
+                return cat["name"]
+        return "unknown"
+
+    def _get_class_id(self, class_name: str) -> int:
+        """Get class ID from class name."""
+        categories = self.coco_data.get("categories", [])
+        for cat in categories:
+            if cat["name"] == class_name:
+                return cat["id"]
+
+        # If not found, create a new class ID
+        max_id = max([cat["id"] for cat in categories]) if categories else 0
+        return max_id + 1

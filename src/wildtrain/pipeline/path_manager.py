@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..config import ROOT
 from ..logging_config import get_logger
 
 
@@ -36,10 +37,11 @@ class PathManager:
         self.framework_formats_dir = self.project_root / "framework_formats"
         self.coco_formats_dir = self.framework_formats_dir / "coco"
         self.yolo_formats_dir = self.framework_formats_dir / "yolo"
+        self.roi_formats_dir = self.framework_formats_dir / "roi"
 
         # DVC and configuration
-        self.dvc_dir = self.project_root / ".dvc"
-        self.config_dir = self.project_root / "config"
+        self.dvc_dir = ROOT / ".dvc"
+        self.config_dir = ROOT / "config"
 
     def get_dataset_dir(self, dataset_name: str) -> Path:
         """Get the data directory for a specific dataset."""
@@ -67,6 +69,8 @@ class PathManager:
             return self.coco_formats_dir / dataset_name
         elif framework.lower() == "yolo":
             return self.yolo_formats_dir / dataset_name
+        elif framework.lower() == "roi":
+            return self.roi_formats_dir / dataset_name
         else:
             raise ValueError(f"Unsupported framework: {framework}")
 
@@ -77,6 +81,8 @@ class PathManager:
             return framework_dir / "images"
         elif framework.lower() == "yolo":
             return framework_dir / "images"
+        elif framework.lower() == "roi":
+            return framework_dir / "images"
         else:
             raise ValueError(f"Unsupported framework: {framework}")
 
@@ -86,6 +92,8 @@ class PathManager:
         if framework.lower() == "coco":
             return framework_dir / "annotations"
         elif framework.lower() == "yolo":
+            return framework_dir / "labels"
+        elif framework.lower() == "roi":
             return framework_dir / "labels"
         else:
             raise ValueError(f"Unsupported framework: {framework}")
@@ -111,7 +119,7 @@ class PathManager:
                 )
 
                 # Get existing splits from data
-                existing_splits = self._get_existing_splits(dataset_name)
+                existing_splits = self.get_existing_splits(dataset_name)
 
                 for split in existing_splits:
                     (images_dir / split).mkdir(parents=True, exist_ok=True)
@@ -140,31 +148,13 @@ class PathManager:
             )
             return []
 
-    def _get_existing_splits(self, dataset_name: str) -> List[str]:
-        """Get list of splits that actually exist in the data."""
-        try:
-            annotations_dir = self.get_dataset_annotations_dir(dataset_name)
-            if not annotations_dir.exists():
-                return []
-
-            existing_splits = []
-            for annotation_file in annotations_dir.glob("*.json"):
-                if annotation_file.name != "dataset_info.json":
-                    split_name = annotation_file.stem  # Remove .json extension
-                    existing_splits.append(split_name)
-
-            return sorted(existing_splits)
-        except Exception as e:
-            # If we can't read the data, return empty list
-            return []
-
-    def get_split_image_dir(
+    def get_framework_split_image_dir(
         self, dataset_name: str, framework: str, split: str
     ) -> Path:
         """Get the images directory for a specific split."""
         return self.get_framework_images_dir(dataset_name, framework) / split
 
-    def get_split_annotations_dir(
+    def get_framework_split_annotations_dir(
         self, dataset_name: str, framework: str, split: str
     ) -> Path:
         """Get the annotations directory for a specific split."""
