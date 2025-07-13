@@ -493,7 +493,7 @@ class TilingTransformer(BaseTransformer):
         filtered_tiles = []
         for tile in selected_tiles:
             image = tile["image"]  # numpy array, shape (H, W, C)
-            ratio = np.isclose(np.abs(image - 10.0), 0.0).sum() / image.size
+            ratio = np.isclose(image, 0.0, atol=10).sum() / image.size
             if ratio <= self.config.dark_threshold:
                 filtered_tiles.append(tile)
 

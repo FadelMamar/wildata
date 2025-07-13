@@ -2,12 +2,16 @@ import json
 import logging
 import os
 import random
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import albumentations as A
 import cv2
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 from .base_adapter import BaseAdapter
 
@@ -24,15 +28,15 @@ class ROIAdapter(BaseAdapter):
 
     def __init__(
         self,
-        coco_annotation_path: Optional[str] = None,
-        coco_data: Optional[Dict[str, Any]] = None,
+        coco_data: Dict[str, Any],
         roi_callback: Optional[Callable] = None,
-        random_roi_count: int = 5,
+        random_roi_count: int = 1,
         roi_box_size: int = 128,
         min_roi_size: int = 32,
         background_class: str = "background",
         save_format: str = "jpg",
         quality: int = 95,
+        dark_threshold: float = 0.5,
     ):
         """
         Initialize the ROI adapter.
@@ -48,7 +52,7 @@ class ROIAdapter(BaseAdapter):
             save_format: Image format for ROI crops
             quality: JPEG quality (1-100)
         """
-        super().__init__(coco_annotation_path, coco_data)
+        super().__init__(coco_data)
 
         self.roi_callback = roi_callback
         self.random_roi_count = random_roi_count
@@ -57,10 +61,22 @@ class ROIAdapter(BaseAdapter):
         self.background_class = background_class
         self.save_format = save_format
         self.quality = quality
-
-        # Load COCO data if not provided
-        if self.coco_data is None:
-            self.load_coco_annotation()
+        self.pad_roi = A.Compose(
+            [
+                A.PadIfNeeded(
+                    min_height=roi_box_size,
+                    min_width=roi_box_size,
+                    border_mode=cv2.BORDER_CONSTANT,
+                    fill=0,
+                ),
+                A.CenterCrop(
+                    height=roi_box_size,
+                    width=roi_box_size,
+                    p=1,
+                ),
+            ]
+        )
+        self.dark_threshold = dark_threshold
 
     def convert(self) -> Dict[str, Any]:
         """
@@ -104,11 +120,8 @@ class ROIAdapter(BaseAdapter):
             "rois_from_random": 0,
         }
 
-        for image in images:
+        for image in tqdm(images, desc="Converting COCO to ROI"):
             image_id = image["id"]
-            image_path = image["file_name"]
-            width = image["width"]
-            height = image["height"]
 
             # Get annotations for this image
             image_annotations = annotations_by_image.get(image_id, [])
@@ -161,11 +174,9 @@ class ROIAdapter(BaseAdapter):
             logger.warning("No ROI data to save")
             return
 
-        # Save ROI images
-        self.save_roi_images(roi_data["roi_images"], output_images_dir)
-
         # Save ROI labels as JSON
         labels_dir = Path(output_labels_dir)
+        labels_dir.mkdir(parents=True, exist_ok=True)
         self._save_roi_labels_json(roi_data["roi_labels"], labels_dir)
 
         # Save class mapping
@@ -173,6 +184,9 @@ class ROIAdapter(BaseAdapter):
 
         # Save statistics
         self._save_statistics(roi_data["statistics"], labels_dir)
+
+        # Save ROI images
+        self._save_roi_images(roi_data["roi_images"], output_images_dir)
 
         logger.info(
             f"Saved {len(roi_data['roi_images'])} ROI images to {output_images_dir}"
@@ -231,7 +245,9 @@ class ROIAdapter(BaseAdapter):
                 continue
 
             # Generate ROI filename
-            roi_filename = f"roi_{counter:06d}.{self.save_format}"
+            roi_filename = (
+                f"{Path(image_path).stem}_roi_{counter:06d}.{self.save_format}"
+            )
 
             # Create ROI image info
             roi_image_info = {
@@ -251,6 +267,7 @@ class ROIAdapter(BaseAdapter):
                 "class_id": category_id,
                 "class_name": self._get_class_name(category_id),
                 "original_annotation_id": ann.get("id"),
+                "file_name": roi_filename,
             }
 
             roi_images.append(roi_image_info)
@@ -283,32 +300,30 @@ class ROIAdapter(BaseAdapter):
         random_rois = 0
 
         image_path = image["file_name"]
-        width = image["width"]
-        height = image["height"]
 
         # Try callback first
         if self.roi_callback:
             try:
                 # Load image for callback
-                img = cv2.imread(image_path)
-                if img is not None:
-                    callback_bboxes = self.roi_callback(image_path, img)
-                    if callback_bboxes:
-                        for bbox_info in callback_bboxes:
-                            bbox = bbox_info.get("bbox")
-                            class_name = bbox_info.get("class", self.background_class)
+                with Image.open(image_path) as img:
+                    callback_bboxes = self.roi_callback(img)
+                for bbox_info in callback_bboxes:
+                    bbox = bbox_info.get("bbox")
+                    class_name = bbox_info.get("class", self.background_class)
 
-                            if bbox and len(bbox) == 4:
-                                roi_result = self._create_roi_from_bbox(
-                                    image, bbox, class_name, counter
-                                )
-                                if roi_result:
-                                    roi_images.append(roi_result["roi_image"])
-                                    roi_labels.append(roi_result["roi_label"])
-                                    counter = roi_result["next_counter"]
-                                    callback_rois += 1
-            except Exception as e:
-                logger.warning(f"Error in ROI callback for {image_path}: {e}")
+                    if bbox:
+                        roi_result = self._create_roi_from_bbox(
+                            image, bbox, class_name, counter
+                        )
+                        if roi_result:
+                            roi_images.append(roi_result["roi_image"])
+                            roi_labels.append(roi_result["roi_label"])
+                            counter = roi_result["next_counter"]
+                            callback_rois += 1
+            except Exception:
+                logger.warning(
+                    f"Error in ROI callback for {image_path}: {traceback.format_exc()}"
+                )
 
         # Generate random ROIs if needed
         remaining_rois = self.random_roi_count - callback_rois
@@ -330,7 +345,7 @@ class ROIAdapter(BaseAdapter):
         }
 
     def _create_roi_from_bbox(
-        self, image: Dict, bbox: List[Union[int, float]], class_name: str, counter: int
+        self, image: Dict, bbox: List[int], class_name: str, counter: int
     ) -> Optional[Dict[str, Any]]:
         """
         Create ROI from bounding box coordinates.
@@ -349,21 +364,20 @@ class ROIAdapter(BaseAdapter):
         height = image["height"]
 
         # Apply padding
-        pad_x = w * self.roi_padding
-        pad_y = h * self.roi_padding
+        pad_x = self.roi_box_size // 2
+        pad_y = self.roi_box_size // 2
 
         # Calculate padded coordinates
-        x1 = max(0, int(x - pad_x))
-        y1 = max(0, int(y - pad_y))
-        x2 = min(width, int(x + w + pad_x))
-        y2 = min(height, int(y + h + pad_y))
+        x1 = max(0, x - pad_x)
+        y1 = max(0, y - pad_y)
+        x2 = min(width, x + pad_x)
+        y2 = min(height, y + pad_y)
 
-        # Check minimum size
-        if (x2 - x1) < self.min_roi_size or (y2 - y1) < self.min_roi_size:
-            return None
+        roi = [x1, y1, x2, y2]
+        roi = list(map(int, roi))
 
         # Generate ROI filename
-        roi_filename = f"roi_{counter:06d}.{self.save_format}"
+        roi_filename = f"{class_name}_roi_{counter:06d}.{self.save_format}"
 
         # Create ROI image info
         roi_image_info = {
@@ -371,7 +385,7 @@ class ROIAdapter(BaseAdapter):
             "roi_filename": roi_filename,
             "original_image_path": image["file_name"],
             "original_image_id": image["id"],
-            "bbox": [x1, y1, x2, y2],
+            "bbox": roi,
             "original_bbox": bbox,
             "width": x2 - x1,
             "height": y2 - y1,
@@ -382,6 +396,7 @@ class ROIAdapter(BaseAdapter):
             "roi_id": counter,
             "class_name": class_name,
             "class_id": self._get_class_id(class_name),
+            "file_name": roi_filename,
         }
 
         return {
@@ -404,49 +419,57 @@ class ROIAdapter(BaseAdapter):
         width = image["width"]
         height = image["height"]
 
-        # Generate random bbox
-        max_w = min(width // 2, width - self.min_roi_size)
-        max_h = min(height // 2, height - self.min_roi_size)
-
-        if max_w < self.min_roi_size or max_h < self.min_roi_size:
-            return None
-
-        w = random.randint(self.min_roi_size, max_w)
-        h = random.randint(self.min_roi_size, max_h)
-        x = random.randint(0, width - w)
-        y = random.randint(0, height - h)
+        w = self.roi_box_size
+        h = self.roi_box_size
+        x = random.randint(w // 2, width - w // 2)
+        y = random.randint(h // 2, height - h // 2)
 
         bbox = [x, y, w, h]
 
         return self._create_roi_from_bbox(image, bbox, self.background_class, counter)
 
-    def save_roi_images(self, roi_images: List[Dict], output_dir: Path | str) -> None:
+    def _save_roi_images(self, roi_images: List[Dict], output_dir: Path | str) -> None:
         """Save ROI images to disk."""
 
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
 
-        for roi_info in roi_images:
+        def _save_one_image(roi_info: Dict):
             try:
-                # Load original image
-                img = cv2.imread(roi_info["original_image_path"])
-                if img is None:
-                    continue
+                with Image.open(roi_info["original_image_path"]) as img:
+                    roi_path = output_dir / roi_info["roi_filename"]
+                    cropped_img = img.crop(roi_info["bbox"])
+                    cropped_img = np.array(cropped_img)
+                    if (
+                        np.isclose(cropped_img, 0.0, atol=10).sum() / cropped_img.size
+                        < self.dark_threshold
+                    ):
+                        if cropped_img.size != (self.roi_box_size, self.roi_box_size):
+                            cropped_img = self.pad_roi(image=cropped_img)["image"]
+                        Image.fromarray(cropped_img).save(roi_path)
 
-                # Crop ROI
-                x1, y1, x2, y2 = roi_info["bbox"]
-                roi_img = img[y1:y2, x1:x2]
-
-                # Save ROI image
-                roi_path = output_dir / roi_info["roi_filename"]
-                cv2.imwrite(
-                    str(roi_path), roi_img, [cv2.IMWRITE_JPEG_QUALITY, self.quality]
+                    return True, "Success"
+            except Exception:
+                return (
+                    False,
+                    f"Error saving ROI image {roi_info['roi_filename']}: {traceback.format_exc()}",
                 )
 
-            except Exception as e:
-                logger.warning(
-                    f"Error saving ROI image {roi_info['roi_filename']}: {e}"
-                )
+        failures = 0
+        errors = []
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            for success, error_msg in tqdm(
+                executor.map(_save_one_image, roi_images),
+                desc="Saving ROI images",
+                total=len(roi_images),
+            ):
+                if not success:
+                    logger.warning(error_msg)
+                    failures += 1
+                    errors.append(error_msg)
+        if failures > 0:
+            logger.warning(f"Failed to save {failures}/{len(roi_images)} ROI images")
+            print(errors)
 
     def _save_roi_labels_json(
         self, labels_data: Dict[str, Any], output_dir: Path

@@ -16,12 +16,13 @@ class YOLOAdapter(BaseAdapter):
 
     def __init__(
         self,
-        coco_annotation_path: Optional[str] = None,
-        coco_data: Optional[Dict[str, Any]] = None,
+        coco_data: Dict[str, Any],
     ):
-        super().__init__(coco_annotation_path, coco_data)
+        super().__init__(coco_data)
 
-    def convert(self, split: str) -> Dict[str, List[str]]:
+    def convert(
+        self,
+    ) -> Dict[str, List[str]]:
         """
         Convert the loaded COCO annotation to YOLO format for the specified split.
         Args:
@@ -43,6 +44,7 @@ class YOLOAdapter(BaseAdapter):
                     image_labels[img["file_name"]].append(yolo_line)
         return image_labels
 
+    # TODO: debug
     def save(
         self,
         yolo_data: Dict[str, List[str]],
@@ -78,6 +80,7 @@ class YOLOAdapter(BaseAdapter):
 
         logger.info(f"Saved {len(yolo_data)} label files to {labels_dir}")
 
+    # TODO: debug
     def save_data_yaml(
         self, class_names: List[str], split_image_dirs: Dict[str, str], output_path: str
     ) -> None:
@@ -98,6 +101,7 @@ class YOLOAdapter(BaseAdapter):
             yaml_str = self._dict_to_yaml(data_yaml)
             f.write(yaml_str)
 
+    # TODO: debug
     # --- Private utility methods ---
     def _annotation_to_yolo_line(
         self, ann: Dict[str, Any], width: int, height: int

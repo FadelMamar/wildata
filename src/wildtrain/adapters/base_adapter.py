@@ -11,31 +11,12 @@ class BaseAdapter(ABC):
 
     def __init__(
         self,
-        coco_annotation_path: Optional[str] = None,
-        coco_data: Optional[Dict[str, Any]] = None,
+        coco_data: Dict[str, Any],
     ):
         """
         Initialize the adapter with the path to the COCO annotation file.
         """
-        self.coco_annotation_path = coco_annotation_path
-        self.coco_data: Dict[str, Any] = coco_data or {}
-
-        assert (
-            self.coco_annotation_path is not None or self.coco_data is not None
-        ), "Either coco_annotation_path or coco_data must be provided"
-
-    def load_coco_annotation(self) -> None:
-        """
-        Load the COCO annotation JSON file into memory.
-        """
-        if self.coco_annotation_path is not None:
-            self.coco_data = self._load_json(self.coco_annotation_path)
-        else:
-            self.coco_data = self.coco_data
-
-    def _load_json(self, path: str) -> Dict[str, Any]:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        self.coco_data: Dict[str, Any] = coco_data
 
     @abstractmethod
     def convert(self, split: str) -> Any:
