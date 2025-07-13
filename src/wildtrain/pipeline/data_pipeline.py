@@ -128,13 +128,9 @@ class DataPipeline:
             if roi_config:
                 self.framework_data_manager.create_roi_format(
                     dataset_name=dataset_name,
-                    random_roi_count=roi_config.random_roi_count,
-                    roi_box_size=roi_config.roi_box_size,
-                    min_roi_size=roi_config.min_roi_size,
                     coco_data=split_data[self.split_name],
                     split=self.split_name,
-                    roi_callback=roi_config.roi_callback,
-                    dark_threshold=roi_config.dark_threshold,
+                    roi_config=roi_config,
                 )
 
             # Store dataset using data manager with transformation options
