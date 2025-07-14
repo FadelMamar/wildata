@@ -1,0 +1,23 @@
+# Example YAML config for WildTrain dataset import
+# Edit the values as needed for your dataset
+
+source_path: "data/mydata.json"         # Path to your dataset (COCO or YOLO format)
+format_type: "coco"                     # 'coco' or 'yolo'
+dataset_name: "my_dataset"              # Name for the dataset in master storage
+track_with_dvc: true                     # Track dataset with DVC (true/false)
+
+# Augmentation options
+augment: true                            # Apply data augmentation
+rotation_range: [0, 20]                  # Rotation range in degrees
+probability: 0.7                         # Augmentation probability (0-1)
+brightness_range: [0.8, 1.2]             # Brightness range
+contrast_range: [0.8, 1.2]               # Contrast range
+noise_std: [0.01, 0.05]                  # Noise standard deviation range (min,max)
+
+# Tiling options
+tile: true                               # Apply image tiling
+tile_size: 512                           # Tile size in pixels
+stride: 256                              # Stride between tiles
+min_visibility: 0.1                      # Minimum object visibility in tiles (0-1)
+max_negative_tiles: 3                    # Maximum negative tiles per image
+negative_positive_ratio: 1.0             # Negative to positive tile ratio 
