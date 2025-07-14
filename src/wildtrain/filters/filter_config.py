@@ -36,12 +36,31 @@ class ClusteringFilterConfig:
 
 
 @dataclass
+class HardSampleMiningConfig:
+    enabled: bool = False
+    miner_type: str = "confidence"  # "confidence", "svm_confidence", "roi_embedding"
+    gt_annotations: Optional[
+        list
+    ] = None  # Should be set at runtime or loaded separately
+    nms_thresholds: Optional[list] = None
+    margin_band: float = 0.1
+    roi_box_size: int = 128
+    min_roi_size: int = 32
+    batch_size: int = 32
+    top_k: Optional[int] = None
+    threshold: Optional[float] = None
+
+
+@dataclass
 class FilterConfig:
     feature_extractor: FeatureExtractorConfig = field(
         default_factory=FeatureExtractorConfig
     )
     quality: QualityFilterConfig = field(default_factory=QualityFilterConfig)
     clustering: ClusteringFilterConfig = field(default_factory=ClusteringFilterConfig)
+    hard_sample_mining: HardSampleMiningConfig = field(
+        default_factory=HardSampleMiningConfig
+    )
     # Add more filter groups as needed
 
     @classmethod
@@ -58,4 +77,7 @@ class FilterConfig:
             ),
             quality=QualityFilterConfig(**data.get("quality", {})),
             clustering=ClusteringFilterConfig(**data.get("clustering", {})),
+            hard_sample_mining=HardSampleMiningConfig(
+                **data.get("hard_sample_mining", {})
+            ),
         )

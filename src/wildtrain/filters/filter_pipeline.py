@@ -8,6 +8,12 @@ from .algorithms import ClusteringFilter, SizeFilter
 from .base import BaseFilter
 from .feature_extractor import Dinov2Extractor
 from .filter_config import FilterConfig
+from .hard_sample_mining import (
+    ConfidenceMining,
+    HardSampleMiningFilter,
+    ROIEmbeddingMining,
+    SVMConfidenceMining,
+)
 
 
 class FilterPipeline:
@@ -56,5 +62,51 @@ class FilterPipeline:
                     ),
                 )
             )
+
+        # Hard sample mining filter (example, user should extend config as needed)
+        if hasattr(config, "hard_sample_mining") and getattr(
+            config.hard_sample_mining, "enabled", False
+        ):
+            miner_type = getattr(config.hard_sample_mining, "miner_type", "confidence")
+            miner = None
+            if miner_type == "confidence":
+                miner = ConfidenceMining()
+            elif miner_type == "svm_confidence":
+                miner = SVMConfidenceMining(
+                    gt_annotations=getattr(
+                        config.hard_sample_mining, "gt_annotations", []
+                    ),
+                    nms_thresholds=getattr(
+                        config.hard_sample_mining, "nms_thresholds", None
+                    ),
+                    margin_band=getattr(config.hard_sample_mining, "margin_band", 0.1),
+                )
+            elif miner_type == "roi_embedding":
+                miner = ROIEmbeddingMining(
+                    gt_annotations=getattr(
+                        config.hard_sample_mining, "gt_annotations", []
+                    ),
+                    feature_extractor=Dinov2Extractor(),
+                    roi_box_size=getattr(
+                        config.hard_sample_mining, "roi_box_size", 128
+                    ),
+                    min_roi_size=getattr(config.hard_sample_mining, "min_roi_size", 32),
+                    nms_thresholds=getattr(
+                        config.hard_sample_mining, "nms_thresholds", None
+                    ),
+                    margin_band=getattr(config.hard_sample_mining, "margin_band", 0.1),
+                    batch_size=getattr(config.hard_sample_mining, "batch_size", 32),
+                )
+            if miner is not None:
+                filters.append(
+                    HardSampleMiningFilter(
+                        miner,
+                        top_k=getattr(config.hard_sample_mining, "top_k", None),
+                        threshold=getattr(config.hard_sample_mining, "threshold", None),
+                        batch_size=getattr(
+                            config.hard_sample_mining, "batch_size", 128
+                        ),
+                    )
+                )
 
         return cls(filters)

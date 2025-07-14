@@ -62,6 +62,9 @@ class ClusteringFilter(BaseFilter):
 
     CLUSTER_TRIALS = [3, 5, 7, 9, 13, 17, 21, 30, 50]
 
+    last_silhouette_scores: Optional[Dict[int, float]]
+    last_samples_per_cluster: Optional[List[int]]
+
     def __init__(
         self,
         config: ClusteringFilterConfig,
@@ -76,6 +79,8 @@ class ClusteringFilter(BaseFilter):
         self.sampling_strategy = (
             sampling_strategy or UniformDistanceRandomSamplingStrategy()
         )
+        self.last_silhouette_scores = None
+        self.last_samples_per_cluster = None
 
     def filter(self, coco_data: Dict[str, Any]) -> Dict[str, Any]:
         images = coco_data.get("images", [])
@@ -88,6 +93,7 @@ class ClusteringFilter(BaseFilter):
         file_names = [img["file_name"] for img in coco_data["images"]]
         # Find best clustering
         best_k, best_labels, silhouette_scores = self._find_best_kmeans(embeddings)
+        self.last_silhouette_scores = silhouette_scores
         logger.info(f"Best number of clusters: {best_k}")
         logger.info(f"Silhouette scores for tried clusters: {silhouette_scores}")
         # Create DataFrame for sampling
@@ -119,6 +125,7 @@ class ClusteringFilter(BaseFilter):
         )
         # Proportional allocation
         samples_per_cluster = self._allocate_samples_per_cluster(df, n_keep, best_k)
+        self.last_samples_per_cluster = samples_per_cluster
         logger.info(f"Samples per cluster: {samples_per_cluster}")
         selected_indices = []
         for cl in range(best_k):

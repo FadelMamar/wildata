@@ -18,6 +18,38 @@ from .base_adapter import BaseAdapter
 logger = logging.getLogger(__name__)
 
 
+def extract_roi_from_image_bbox(
+    image_path, bbox, roi_box_size=128, min_roi_size=32, padding=None
+):
+    """
+    Utility to extract a ROI from an image given a bbox, with padding and resizing.
+    Args:
+        image_path: Path to the image file
+        bbox: [x, y, w, h]
+        roi_box_size: Output size (int)
+        min_roi_size: Minimum ROI size (int)
+        padding: Not used (for future extension)
+    Returns:
+        PIL.Image or None
+    """
+    try:
+        with Image.open(image_path) as img:
+            x, y, w, h = bbox
+            pad_x = roi_box_size // 2
+            pad_y = roi_box_size // 2
+            x1 = max(0, int(x - pad_x))
+            y1 = max(0, int(y - pad_y))
+            x2 = int(x + w + pad_x)
+            y2 = int(y + h + pad_y)
+            if (x2 - x1) < min_roi_size or (y2 - y1) < min_roi_size:
+                return None
+            roi = img.crop((x1, y1, x2, y2))
+            roi = roi.resize((roi_box_size, roi_box_size))
+            return roi
+    except Exception:
+        return None
+
+
 class ROIAdapter(BaseAdapter):
     """
     Adapter for converting COCO annotation format to ROI classification format.
@@ -359,46 +391,39 @@ class ROIAdapter(BaseAdapter):
         Returns:
             Dictionary with ROI image, label, and next counter, or None if failed
         """
+        roi = extract_roi_from_image_bbox(
+            image["file_name"], bbox, self.roi_box_size, self.min_roi_size
+        )
+        if roi is None:
+            return None
         x, y, w, h = bbox
         width = image["width"]
         height = image["height"]
-
-        # Apply padding
         pad_x = self.roi_box_size // 2
         pad_y = self.roi_box_size // 2
-
-        # Calculate padded coordinates
         x1 = max(0, x - pad_x)
         y1 = max(0, y - pad_y)
         x2 = min(width, x + pad_x)
         y2 = min(height, y + pad_y)
-
-        roi = [x1, y1, x2, y2]
-        roi = list(map(int, roi))
-
-        # Generate ROI filename
+        roi_box = [x1, y1, x2, y2]
+        roi_box = list(map(int, roi_box))
         roi_filename = f"{class_name}_roi_{counter:06d}.{self.save_format}"
-
-        # Create ROI image info
         roi_image_info = {
             "roi_id": counter,
             "roi_filename": roi_filename,
             "original_image_path": image["file_name"],
             "original_image_id": image["id"],
-            "bbox": roi,
+            "bbox": roi_box,
             "original_bbox": bbox,
             "width": x2 - x1,
             "height": y2 - y1,
         }
-
-        # Create ROI label info
         roi_label_info = {
             "roi_id": counter,
             "class_name": class_name,
             "class_id": self._get_class_id(class_name),
             "file_name": roi_filename,
         }
-
         return {
             "roi_image": roi_image_info,
             "roi_label": roi_label_info,

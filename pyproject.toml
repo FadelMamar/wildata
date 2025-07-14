@@ -12,22 +12,35 @@ dependencies = [
     "jsonschema>=4.0.0",
     "albumentations>=2.0.8",
     "pillow>=11.3.0",
-    "numpy>=2.3.1",
     "python-dotenv>=1.1.1",
     "typer>=0.9.0",
     "dvc>=3.0.0",
     "pre-commit>=4.2.0",
     "spyder-kernels==3.0.*",
     "dvc-s3>=3.2.2",
-    "label-studio-sdk>=1.0.18",
     "transformers>=4.53.2",
     "accelerate>=1.8.1",
     "scikit-learn>=1.7.0",
     "pandas>=2.3.1",
+    "torchmetrics>=1.7.4",
+    "pip>=25.1.1",
+    "label-studio-sdk>=1.0.18",
+    "torch==2.6",
+    "torchvision>=0.21.0",
 ]
 
 [project.scripts]
-wildtrain = "src.wildtrain.__main__:main"
+wildtrain = "wildtrain.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.7.19,<0.8.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+select = ["I", "E", "F", "W", "C90"]
+ignore = []
 
 [project.optional-dependencies]
 test = [
