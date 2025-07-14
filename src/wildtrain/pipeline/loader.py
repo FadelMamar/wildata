@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from ..converters.labelstudio_converter import LabelstudioConverter
 from ..converters.yolo_to_master import YOLOToMasterConverter
 from ..validators.coco_validator import COCOValidator
 from ..validators.yolo_validator import YOLOValidator
@@ -10,6 +11,9 @@ from ..validators.yolo_validator import YOLOValidator
 class Loader:
     def __init__(self):
         self.split_name = "NOT_SET"
+        self.dotenv_path: Optional[str] = None
+        self.ls_xml_config: Optional[str] = None
+        self.ls_parse_config: bool = False
 
     def _load_json(self, annotation_path: str) -> Dict[str, Any]:
         with open(annotation_path, "r", encoding="utf-8") as f:
@@ -22,11 +26,17 @@ class Loader:
         dataset_name: str,
         bbox_tolerance: int,
         split_name: str,
+        dotenv_path: Optional[str] = None,
+        ls_xml_config: Optional[str] = None,
+        ls_parse_config: bool = False,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if split_name not in ["train", "val", "test"]:
             raise ValueError(f"Invalid split name: {split_name}")
 
         self.split_name = split_name
+        self.dotenv_path = dotenv_path
+        self.ls_xml_config = ls_xml_config
+        self.ls_parse_config = ls_parse_config
 
         dataset_info, split_data = self._load_and_validate_dataset(
             source_path=source_path,
@@ -139,8 +149,19 @@ class Loader:
 
             # Create converter and convert YOLO to COCO format
             converter = YOLOToMasterConverter(source_path)
-            converter.load_yolo_data()
-            dataset_info, split_data = converter.convert(dataset_name)
+            dataset_info, split_data = converter.convert(
+                dataset_name, task_type="detection", filter_invalid_annotations=False
+            )
+
+        elif source_format == "ls":
+            converter = LabelstudioConverter(dotenv_path=self.dotenv_path)
+            dataset_info, coco_data = converter.convert(
+                input_file=source_path,
+                dataset_name=dataset_name,
+                parse_ls_config=self.ls_parse_config,
+                ls_xml_config=self.ls_xml_config,
+            )
+            split_data = {self.split_name: coco_data}
         else:
             raise ValueError(f"Unsupported source format: {source_format}")
 

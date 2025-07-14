@@ -103,6 +103,10 @@ class DataManager:
             return self._store_dataset_standard(
                 dataset_name, dataset_info, split_data, track_with_dvc
             )
+        elif len(transformation_pipeline) == 0:
+            return self._store_dataset_standard(
+                dataset_name, dataset_info, split_data, track_with_dvc
+            )
 
         # Apply transformations based on processing mode
         elif processing_mode == "streaming":
@@ -449,7 +453,7 @@ class DataManager:
             transformation_metadata = {
                 "transformation_history": transformation_pipeline.get_transformation_history(),
             }
-            split_data_to_store["transformation_metadata"] = transformation_metadata
+            # split_data_to_store["transformation_metadata"] = transformation_metadata
 
             # Save split data using helper method
             self._save_coco_json(dataset_name, split_name, split_data_to_store)

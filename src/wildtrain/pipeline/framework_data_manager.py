@@ -111,15 +111,9 @@ class FrameworkDataManager:
 
         # Get paths using PathManager
         yolo_dir = self.path_manager.get_framework_format_dir(dataset_name, "yolo")
-        yolo_images_dir = self.path_manager.get_framework_images_dir(
-            dataset_name, "yolo"
-        )
-        yolo_labels_dir = self.path_manager.get_framework_annotations_dir(
-            dataset_name, "yolo"
-        )
 
         # Create symlinks for images
-        self._create_image_symlinks(dataset_name, yolo_images_dir)
+        self._create_image_symlinks(dataset_name, "yolo")
 
         # Generate YOLO annotations using adapter for each split
         existing_splits = self.path_manager.get_existing_splits(dataset_name)
@@ -141,10 +135,9 @@ class FrameworkDataManager:
 
                 # Create adapter for this split
                 adapter = YOLOAdapter(coco_data=split_coco_data)
-                adapter.load_coco_annotation()
 
                 # Convert to YOLO format
-                split_yolo = adapter.convert(split)
+                split_yolo = adapter.convert()
                 all_yolo_data["annotations"][split] = split_yolo
 
                 # Get class names from first split
@@ -159,8 +152,8 @@ class FrameworkDataManager:
                 raise e
 
         # Save YOLO annotations and data.yaml
-        self._save_yolo_annotations(yolo_labels_dir, all_yolo_data)
-        self._save_yolo_data_yaml(yolo_dir, dataset_name, all_yolo_data)
+        self._save_yolo_annotations(dataset_name, all_yolo_data)
+        self._save_yolo_data_yaml(dataset_name, all_yolo_data)
 
         self.logger.info(f"Created YOLO format for dataset '{dataset_name}'")
         return str(yolo_dir)
@@ -185,6 +178,9 @@ class FrameworkDataManager:
                 dark_threshold=roi_config.dark_threshold,
                 min_roi_size=roi_config.min_roi_size,
                 roi_callback=roi_config.roi_callback,
+                background_class=roi_config.background_class,
+                save_format=roi_config.save_format,
+                quality=roi_config.quality,
             )
             roi_data = adapter.convert()
 
@@ -214,9 +210,9 @@ class FrameworkDataManager:
         self.logger.info(f"Created ROI format for dataset '{dataset_name}'")
         return str(self.path_manager.get_framework_format_dir(dataset_name, "roi"))
 
-    def _create_image_symlinks(self, dataset_name: str, target_dir: Path):
+    def _create_image_symlinks(self, dataset_name: str, source_format: str):
         """Create symlinks for images in the target directory."""
-        logger.info(f"Creating symlinks for images in {target_dir}")
+        logger.info(f"Creating symlinks for images in {source_format} format")
 
         # Get existing splits from PathManager
         existing_splits = self.path_manager.get_existing_splits(dataset_name)
@@ -227,7 +223,9 @@ class FrameworkDataManager:
             return
 
         for split in existing_splits:
-            split_dir = target_dir / split
+            split_dir = self.path_manager.get_framework_split_image_dir(
+                dataset_name, source_format, split
+            )
             split_dir.mkdir(exist_ok=True)
             src_images_dir = self.path_manager.get_dataset_split_images_dir(
                 dataset_name, split
@@ -257,8 +255,11 @@ class FrameworkDataManager:
                 return json.load(f)
         return {}
 
-    def _save_yolo_annotations(self, labels_dir: Path, yolo_data: Dict[str, Any]):
+    def _save_yolo_annotations(self, dataset_name: str, yolo_data: Dict[str, Any]):
         """Save YOLO annotations for all splits."""
+        labels_dir = self.path_manager.get_framework_annotations_dir(
+            dataset_name, "yolo"
+        )
         labels_dir.mkdir(parents=True, exist_ok=True)
         for split, split_ann in yolo_data["annotations"].items():
             split_dir = labels_dir / split
@@ -271,15 +272,23 @@ class FrameworkDataManager:
                     for ann in ann_list:
                         f.write(ann + "\n")
 
-    def _save_yolo_data_yaml(
-        self, yolo_dir: Path, dataset_name: str, yolo_data: Dict[str, Any]
-    ):
+    def _save_yolo_data_yaml(self, dataset_name: str, yolo_data: Dict[str, Any]):
         """Save YOLO data.yaml file."""
+        yolo_dir = self.path_manager.get_framework_format_dir(dataset_name, "yolo")
+        train_dir = self.path_manager.get_framework_split_image_dir(
+            dataset_name, "yolo", "train"
+        )
+        val_dir = self.path_manager.get_framework_split_image_dir(
+            dataset_name, "yolo", "val"
+        )
+        test_dir = self.path_manager.get_framework_split_image_dir(
+            dataset_name, "yolo", "test"
+        )
         data_yaml = {
-            "path": str(yolo_dir),
-            "train": str(yolo_dir / "images" / "train"),
-            "val": str(yolo_dir / "images" / "val"),
-            "test": str(yolo_dir / "images" / "test"),
+            "path": Path(yolo_dir).as_posix(),
+            "train": Path(os.path.relpath(train_dir, yolo_dir)).as_posix(),
+            "val": Path(os.path.relpath(val_dir, yolo_dir)).as_posix(),
+            "test": Path(os.path.relpath(test_dir, yolo_dir)).as_posix(),
             "names": yolo_data["names"],
         }
         with open(yolo_dir / "data.yaml", "w") as f:

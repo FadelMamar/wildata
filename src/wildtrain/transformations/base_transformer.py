@@ -71,4 +71,4 @@ class BaseTransformer(ABC):
         Returns:
             Dictionary with transformation metadata
         """
-        return {"transformer_type": self.__class__.__name__}
+        return {"transformer_type": str(self.__class__.__name__)}

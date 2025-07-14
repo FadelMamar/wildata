@@ -68,7 +68,7 @@ class DataPipeline:
         # Initialize framework data manager
         self.framework_data_manager = FrameworkDataManager(self.path_manager)
 
-    def import_dataset_with_options(
+    def import_dataset(
         self,
         source_path: str,
         source_format: str,
@@ -77,6 +77,9 @@ class DataPipeline:
         track_with_dvc: bool = False,
         bbox_tolerance: int = 5,
         roi_config: Optional[ROIConfig] = None,
+        dotenv_path: Optional[str] = None,
+        ls_xml_config: Optional[str] = None,
+        ls_parse_config: bool = False,
     ) -> Dict[str, Any]:
         """
         Import dataset with enhanced transformation-storage integration.
@@ -89,6 +92,10 @@ class DataPipeline:
             apply_transformations: Whether to apply transformations during import
             track_with_dvc: Whether to track the dataset with DVC
             bbox_tolerance: Tolerance for bbox validation
+            roi_config: ROI configuration
+            dotenv_path: Path to .env file
+            ls_xml_config: Path to Label Studio XML config file. If given, then parse_ls_config must be False
+            ls_parse_config: Whether to parse Label Studio config
 
         Returns:
             Dictionary with import result information
@@ -115,6 +122,9 @@ class DataPipeline:
                 dataset_name=dataset_name,
                 bbox_tolerance=bbox_tolerance,
                 split_name=self.split_name,
+                dotenv_path=dotenv_path,
+                ls_xml_config=ls_xml_config,
+                ls_parse_config=ls_parse_config,
             )
 
             if not dataset_info or not split_data:

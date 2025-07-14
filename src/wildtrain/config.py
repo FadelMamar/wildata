@@ -86,3 +86,6 @@ class ROIConfig:
     min_roi_size: int = 32
     dark_threshold: float = 0.5
     roi_callback: Optional[Callable] = None
+    background_class: str = "background"
+    save_format: str = "jpg"
+    quality: int = 95

@@ -19,6 +19,7 @@ dependencies = [
     "pre-commit>=4.2.0",
     "spyder-kernels==3.0.*",
     "dvc-s3>=3.2.2",
+    "label-studio-sdk>=1.0.18",
 ]
 
 [project.scripts]

@@ -25,7 +25,7 @@ class YOLOToMasterConverter(BaseConverter):
         self.yolo_data: Dict[str, Any] = {}
         self.base_path = None
 
-    def load_yolo_data(self, filter_invalid_annotations: bool = False) -> None:
+    def _load_yolo_data(self, filter_invalid_annotations: bool = False) -> None:
         """
         Load the YOLO data.yaml file and parse the dataset structure.
         Args:
@@ -84,6 +84,9 @@ class YOLOToMasterConverter(BaseConverter):
         Returns:
             Tuple of (dataset_info, split_data) where split_data maps split names to COCO format data.
         """
+
+        self._load_yolo_data(filter_invalid_annotations=filter_invalid_annotations)
+
         # Extract class names
         class_names_dict = self.yolo_data.get("names", {})
         classes = [

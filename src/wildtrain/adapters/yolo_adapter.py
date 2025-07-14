@@ -44,64 +44,6 @@ class YOLOAdapter(BaseAdapter):
                     image_labels[img["file_name"]].append(yolo_line)
         return image_labels
 
-    # TODO: debug
-    def save(
-        self,
-        yolo_data: Dict[str, List[str]],
-        output_path: Optional[str] = None,
-    ) -> None:
-        """
-        Save the YOLO-formatted annotation files to the output directory.
-        Args:
-            yolo_data (Dict[str, List[str]]): Mapping from image file names to YOLO label lines.
-            output_path (Optional[str]): Directory to save the YOLO label files.
-        """
-        if not yolo_data:
-            logger.warning("No YOLO data to save")
-            return
-
-        # Determine output directory
-        if output_path:
-            labels_dir = Path(output_path)
-        else:
-            # Use the first image file path to determine labels directory
-            first_image = list(yolo_data.keys())[0]
-            labels_dir = Path(first_image).parent
-            labels_dir = Path(str(labels_dir).replace("images", "labels"))
-
-        labels_dir.mkdir(exist_ok=True, parents=True)
-
-        for image_file, label_lines in yolo_data.items():
-            label_file = Path(image_file).with_suffix(".txt").name
-            label_path = labels_dir / label_file
-            with open(label_path, "w", encoding="utf-8") as f:
-                for line in label_lines:
-                    f.write(line + "\n")
-
-        logger.info(f"Saved {len(yolo_data)} label files to {labels_dir}")
-
-    # TODO: debug
-    def save_data_yaml(
-        self, class_names: List[str], split_image_dirs: Dict[str, str], output_path: str
-    ) -> None:
-        """
-        Save the data.yaml file for Ultralytics YOLO.
-        Args:
-            class_names (List[str]): List of class names.
-            split_image_dirs (Dict[str, str]): Mapping from split names to image directories.
-            output_path (str): Path to save the data.yaml file.
-        """
-        data_yaml = {
-            "train": split_image_dirs.get("train", ""),
-            "val": split_image_dirs.get("val", ""),
-            "test": split_image_dirs.get("test", ""),
-            "names": class_names,
-        }
-        with open(output_path, "w", encoding="utf-8") as f:
-            yaml_str = self._dict_to_yaml(data_yaml)
-            f.write(yaml_str)
-
-    # TODO: debug
     # --- Private utility methods ---
     def _annotation_to_yolo_line(
         self, ann: Dict[str, Any], width: int, height: int
@@ -117,15 +59,3 @@ class YOLOAdapter(BaseAdapter):
         class_id = ann["category_id"]
 
         return f"{class_id} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}"
-
-    def _dict_to_yaml(self, d: Dict[str, Any], indent: int = 0) -> str:
-        # Minimal YAML serializer for simple dicts/lists
-        lines = []
-        for k, v in d.items():
-            if isinstance(v, list):
-                lines.append(" " * indent + f"{k}:")
-                for item in v:
-                    lines.append(" " * (indent + 2) + f"- {item}")
-            else:
-                lines.append(" " * indent + f"{k}: {v}")
-        return "\n".join(lines)
