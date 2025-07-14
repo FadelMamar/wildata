@@ -2,18 +2,29 @@
 Command-line interface for the WildTrain data pipeline using Typer.
 """
 
+import ast
 import json
 import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import typer
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, validator
+
+from wildtrain.filters.filter_config import (
+    ClusteringFilterConfig,
+    FeatureExtractorConfig,
+    HardSampleMiningConfig,
+    QualityFilterConfig,
+)
+from wildtrain.filters.filter_config import (
+    FilterConfig as FilterConfigModel,
+)
 
 from .config import ROOT, AugmentationConfig, TilingConfig
 from .logging_config import setup_logging
@@ -24,6 +35,27 @@ from .transformations import (
     TilingTransformer,
     TransformationPipeline,
 )
+
+
+class ImportConfig(BaseModel):
+    source_path: str
+    format_type: str
+    dataset_name: str
+    track_with_dvc: bool = False
+    augment: bool = False
+    rotation_range: Tuple[float, float] = (-10.0, 10.0)
+    probability: float = 0.5
+    brightness_range: Tuple[float, float] = (0.9, 1.1)
+    contrast_range: Tuple[float, float] = (0.9, 1.1)
+    noise_std: Tuple[float, float] = (0.01, 0.1)
+    tile: bool = False
+    tile_size: int = 512
+    stride: int = 256
+    min_visibility: float = 0.1
+    max_negative_tiles: int = 3
+    negative_positive_ratio: float = 1.0
+    filter_config: Optional[FilterConfigModel] = None
+
 
 __version__ = "0.1.0"
 
@@ -102,25 +134,6 @@ def get_pipeline(
 dataset_app = typer.Typer(help="Dataset management commands.")
 
 
-class ImportConfig(BaseModel):
-    source_path: str
-    format_type: str
-    dataset_name: str
-    track_with_dvc: bool = False
-    augment: bool = False
-    rotation_range: Tuple[float, float] = (-10.0, 10.0)
-    probability: float = 0.5
-    brightness_range: Tuple[float, float] = (0.9, 1.1)
-    contrast_range: Tuple[float, float] = (0.9, 1.1)
-    noise_std: Tuple[float, float] = (0.01, 0.1)
-    tile: bool = False
-    tile_size: int = 512
-    stride: int = 256
-    min_visibility: float = 0.1
-    max_negative_tiles: int = 3
-    negative_positive_ratio: float = 1.0
-
-
 @dataset_app.command("import")
 def import_dataset(
     config: Optional[Path] = typer.Option(
@@ -167,9 +180,12 @@ def import_dataset(
     negative_positive_ratio: Optional[float] = typer.Option(
         None, help="Negative to positive tile ratio"
     ),
+    filter_config: Optional[FilterConfigModel] = typer.Option(
+        None, help="Filter config as a dict (overrides config file)"
+    ),
 ):
     """
-    Import a dataset from COCO or YOLO format with optional transformations and DVC tracking.
+    Import a dataset from COCO or YOLO format with optional transformations, filtering, and DVC tracking.
     You can specify all arguments in a YAML config file using --config/-c. CLI arguments override config values.
     """
     # 1. Load YAML config if provided
@@ -202,18 +218,240 @@ def import_dataset(
             "min_visibility": min_visibility,
             "max_negative_tiles": max_negative_tiles,
             "negative_positive_ratio": negative_positive_ratio,
+            "filter_config": filter_config,
         }.items()
         if v is not None
     }
     # 3. Merge CLI args over config_dict
     merged = {**config_dict, **cli_args}
+    # Only keep keys that are valid ImportConfig fields
+    import_fields = set(ImportConfig.model_fields.keys())
+    filtered_merged = {k: v for k, v in merged.items() if k in import_fields}
+
+    # Type enforcement for ImportConfig fields
+    def coerce_tuple(val):
+        if isinstance(val, (list, tuple)) and len(val) == 2:
+            return (float(val[0]), float(val[1]))
+        return val
+
+    def coerce_bool(val):
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.lower() in ("true", "1", "yes")
+        if isinstance(val, int):
+            return bool(val)
+        return val
+
+    def coerce_int(val):
+        try:
+            return int(val)
+        except Exception:
+            return val
+
+    def coerce_float(val):
+        try:
+            return float(val)
+        except Exception:
+            return val
+
+    def coerce_str(val):
+        return str(val)
+
+    for key in list(filtered_merged.keys()):
+        if key in ("rotation_range", "brightness_range", "contrast_range", "noise_std"):
+            filtered_merged[key] = coerce_tuple(filtered_merged[key])
+        elif key in ("augment", "tile", "track_with_dvc"):
+            filtered_merged[key] = coerce_bool(filtered_merged[key])
+        elif key in ("tile_size", "stride", "max_negative_tiles"):
+            filtered_merged[key] = coerce_int(filtered_merged[key])
+        elif key in ("probability", "min_visibility", "negative_positive_ratio"):
+            filtered_merged[key] = coerce_float(filtered_merged[key])
+        elif key in ("source_path", "format_type", "dataset_name"):
+            filtered_merged[key] = coerce_str(filtered_merged[key])
+    # For filter_config, ensure it's a FilterConfigModel if present
+    if "filter_config" in filtered_merged and isinstance(
+        filtered_merged["filter_config"], dict
+    ):
+        filtered_merged["filter_config"] = FilterConfigModel(
+            **filtered_merged["filter_config"]
+        )
+
+    # Assign to new variables of the correct type (robust parsing)
+    def parse_tuple(val, default):
+        if isinstance(val, (list, tuple)) and len(val) == 2:
+            return (float(val[0]), float(val[1]))
+        if isinstance(val, str):
+            try:
+                parsed = ast.literal_eval(val)
+                if isinstance(parsed, (list, tuple)) and len(parsed) == 2:
+                    return (float(parsed[0]), float(parsed[1]))
+            except Exception:
+                pass
+        return default
+
+    def parse_float(val, default):
+        try:
+            return float(val)
+        except Exception:
+            return default
+
+    def parse_int(val, default):
+        try:
+            return int(val)
+        except Exception:
+            return default
+
+    def parse_bool(val, default):
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.lower() in ("true", "1", "yes")
+        if isinstance(val, int):
+            return bool(val)
+        return default
+
+    source_path = str(filtered_merged.get("source_path", ""))
+    format_type = str(filtered_merged.get("format_type", ""))
+    dataset_name = str(filtered_merged.get("dataset_name", ""))
+    track_with_dvc = parse_bool(filtered_merged.get("track_with_dvc", False), False)
+    augment = parse_bool(filtered_merged.get("augment", False), False)
+    rotation_range = parse_tuple(
+        filtered_merged.get("rotation_range", (-10.0, 10.0)), (-10.0, 10.0)
+    )
+    probability = parse_float(filtered_merged.get("probability", 0.5), 0.5)
+    brightness_range = parse_tuple(
+        filtered_merged.get("brightness_range", (0.9, 1.1)), (0.9, 1.1)
+    )
+    contrast_range = parse_tuple(
+        filtered_merged.get("contrast_range", (0.9, 1.1)), (0.9, 1.1)
+    )
+    noise_std = parse_tuple(filtered_merged.get("noise_std", (0.01, 0.1)), (0.01, 0.1))
+    tile = parse_bool(filtered_merged.get("tile", False), False)
+    tile_size = parse_int(filtered_merged.get("tile_size", 512), 512)
+    stride = parse_int(filtered_merged.get("stride", 256), 256)
+    min_visibility = parse_float(filtered_merged.get("min_visibility", 0.1), 0.1)
+    max_negative_tiles = parse_int(filtered_merged.get("max_negative_tiles", 3), 3)
+    negative_positive_ratio = parse_float(
+        filtered_merged.get("negative_positive_ratio", 1.0), 1.0
+    )
+    filter_config = filtered_merged.get("filter_config", None)
+    if not (
+        isinstance(filter_config, dict)
+        or filter_config is None
+        or hasattr(filter_config, "dict")
+    ):
+        filter_config = None
+    # Final type checks for all fields
+    if not isinstance(source_path, str):
+        source_path = ""
+    if not isinstance(format_type, str):
+        format_type = ""
+    if not isinstance(dataset_name, str):
+        dataset_name = ""
+    if not isinstance(track_with_dvc, bool):
+        track_with_dvc = False
+    if not isinstance(augment, bool):
+        augment = False
+    if not (
+        isinstance(rotation_range, tuple)
+        and len(rotation_range) == 2
+        and all(isinstance(x, float) for x in rotation_range)
+    ):
+        rotation_range = (
+            (float(rotation_range[0]), float(rotation_range[1]))
+            if isinstance(rotation_range, (list, tuple)) and len(rotation_range) == 2
+            else (-10.0, 10.0)
+        )
+    if not isinstance(probability, float):
+        probability = 0.5
+    if not (
+        isinstance(brightness_range, tuple)
+        and len(brightness_range) == 2
+        and all(isinstance(x, float) for x in brightness_range)
+    ):
+        brightness_range = (
+            (float(brightness_range[0]), float(brightness_range[1]))
+            if isinstance(brightness_range, (list, tuple))
+            and len(brightness_range) == 2
+            else (0.9, 1.1)
+        )
+    if not (
+        isinstance(contrast_range, tuple)
+        and len(contrast_range) == 2
+        and all(isinstance(x, float) for x in contrast_range)
+    ):
+        contrast_range = (
+            (float(contrast_range[0]), float(contrast_range[1]))
+            if isinstance(contrast_range, (list, tuple)) and len(contrast_range) == 2
+            else (0.9, 1.1)
+        )
+    if not (
+        isinstance(noise_std, tuple)
+        and len(noise_std) == 2
+        and all(isinstance(x, float) for x in noise_std)
+    ):
+        noise_std = (
+            (float(noise_std[0]), float(noise_std[1]))
+            if isinstance(noise_std, (list, tuple)) and len(noise_std) == 2
+            else (0.01, 0.1)
+        )
+    if not isinstance(tile, bool):
+        tile = False
+    if not isinstance(tile_size, int):
+        tile_size = 512
+    if not isinstance(stride, int):
+        stride = 256
+    if not isinstance(min_visibility, float):
+        min_visibility = 0.1
+    if not isinstance(max_negative_tiles, int):
+        max_negative_tiles = 3
+    if not isinstance(negative_positive_ratio, float):
+        negative_positive_ratio = 1.0
+    # For filter_config, always pass as FilterConfigModel or None
+    if isinstance(filter_config, dict):
+        try:
+            filter_config = FilterConfigModel(**filter_config)
+        except Exception:
+            filter_config = None
+    if not isinstance(filter_config, FilterConfigModel):
+        filter_config = None
     # 4. Validate and coerce with Pydantic
     try:
-        import_config = ImportConfig(**merged)
+        import_config = ImportConfig(
+            source_path=source_path,
+            format_type=format_type,
+            dataset_name=dataset_name,
+            track_with_dvc=track_with_dvc,
+            augment=augment,
+            rotation_range=rotation_range,
+            probability=probability,
+            brightness_range=brightness_range,
+            contrast_range=contrast_range,
+            noise_std=noise_std,
+            tile=tile,
+            tile_size=tile_size,
+            stride=stride,
+            min_visibility=min_visibility,
+            max_negative_tiles=max_negative_tiles,
+            negative_positive_ratio=negative_positive_ratio,
+            filter_config=filter_config,
+        )
     except ValidationError as e:
         typer.echo(f"❌ Config validation error:\n{e}")
         raise typer.Exit(1)
-    # 5. Use import_config in your logic
+    # 5. Build filter pipeline if filter_config is present
+    filter_pipeline = None
+    if import_config.filter_config is not None:
+        from wildtrain.filters.filter_config import FilterConfig as DCFilterConfig
+        from wildtrain.filters.filter_pipeline import FilterPipeline
+
+        # Convert Pydantic model to dataclass
+        filter_config_dc = DCFilterConfig._from_dict(
+            import_config.filter_config.model_dump()
+        )
+        filter_pipeline = FilterPipeline.from_config(filter_config_dc)
+    # 6. Use import_config in your logic
     if import_config.format_type.lower() not in ["coco", "yolo"]:
         typer.echo(
             f"❌ Error: Format type must be 'coco' or 'yolo', got '{import_config.format_type}'"
@@ -257,7 +495,9 @@ def import_dataset(
             except Exception as e:
                 typer.echo(f"❌ Error setting up tiling: {e}")
                 raise typer.Exit(1)
-    pipeline = get_pipeline(split_name, transformation_pipeline)
+    pipeline = get_pipeline(
+        split_name, transformation_pipeline, filter_pipeline=filter_pipeline
+    )
     try:
         typer.echo(
             f"🚀 Importing {import_config.format_type.upper()} dataset from {import_config.source_path}"
@@ -269,6 +509,8 @@ def import_dataset(
             )
         if import_config.track_with_dvc:
             typer.echo("📦 DVC tracking enabled")
+        if import_config.filter_config is not None:
+            typer.echo("🔍 Filtering enabled via filter_config")
         typer.echo("─" * 50)
         result = pipeline.import_dataset(
             source_path=import_config.source_path,

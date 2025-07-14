@@ -12,6 +12,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import yaml
+
 
 class DVCStorageType(Enum):
     """Supported DVC storage types."""
@@ -266,8 +268,6 @@ class DVCManager:
 
             # Write pipeline file
             with open(pipeline_file, "w") as f:
-                import yaml
-
                 yaml.dump(pipeline_config, f, default_flow_style=False)
 
             self.logger.info(f"Created DVC pipeline: {pipeline_file}")

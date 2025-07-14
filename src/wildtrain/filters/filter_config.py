@@ -1,21 +1,19 @@
 """
-FilterConfig dataclass and loader for filter and feature extractor settings.
+FilterConfig Pydantic models and loader for filter and feature extractor settings.
 """
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import yaml
+from pydantic import BaseModel
 
 
-@dataclass
-class FeatureExtractorConfig:
+class FeatureExtractorConfig(BaseModel):
     model_name: str = "facebook/dinov2-with-registers-small"
     device: str = "auto"
 
 
-@dataclass
-class QualityFilterConfig:
+class QualityFilterConfig(BaseModel):
     size_filter_enabled: bool = True
     min_size: int = 10
     max_size_ratio: float = 0.8
@@ -25,8 +23,7 @@ class QualityFilterConfig:
     # Add more fields as needed
 
 
-@dataclass
-class ClusteringFilterConfig:
+class ClusteringFilterConfig(BaseModel):
     enabled: bool = False
     n_clusters: int = 50
     samples_per_cluster: int = 5
@@ -35,8 +32,7 @@ class ClusteringFilterConfig:
     # Add more fields as needed
 
 
-@dataclass
-class HardSampleMiningConfig:
+class HardSampleMiningConfig(BaseModel):
     enabled: bool = False
     miner_type: str = "confidence"  # "confidence", "svm_confidence", "roi_embedding"
     gt_annotations: Optional[
@@ -51,33 +47,19 @@ class HardSampleMiningConfig:
     threshold: Optional[float] = None
 
 
-@dataclass
-class FilterConfig:
-    feature_extractor: FeatureExtractorConfig = field(
-        default_factory=FeatureExtractorConfig
-    )
-    quality: QualityFilterConfig = field(default_factory=QualityFilterConfig)
-    clustering: ClusteringFilterConfig = field(default_factory=ClusteringFilterConfig)
-    hard_sample_mining: HardSampleMiningConfig = field(
-        default_factory=HardSampleMiningConfig
-    )
+class FilterConfig(BaseModel):
+    feature_extractor: FeatureExtractorConfig = FeatureExtractorConfig()
+    quality: QualityFilterConfig = QualityFilterConfig()
+    clustering: ClusteringFilterConfig = ClusteringFilterConfig()
+    hard_sample_mining: HardSampleMiningConfig = HardSampleMiningConfig()
     # Add more filter groups as needed
 
     @classmethod
     def from_yaml(cls, path: str) -> "FilterConfig":
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        return cls._from_dict(data)
+        return cls.model_validate(data)
 
     @classmethod
     def _from_dict(cls, data: Dict[str, Any]) -> "FilterConfig":
-        return cls(
-            feature_extractor=FeatureExtractorConfig(
-                **data.get("feature_extractor", {})
-            ),
-            quality=QualityFilterConfig(**data.get("quality", {})),
-            clustering=ClusteringFilterConfig(**data.get("clustering", {})),
-            hard_sample_mining=HardSampleMiningConfig(
-                **data.get("hard_sample_mining", {})
-            ),
-        )
+        return cls.model_validate(data)
