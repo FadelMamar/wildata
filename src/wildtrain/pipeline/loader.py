@@ -4,8 +4,11 @@ from typing import Any, Dict, Optional, Tuple
 
 from ..converters.labelstudio_converter import LabelstudioConverter
 from ..converters.yolo_to_master import YOLOToMasterConverter
+from ..logging_config import get_logger
 from ..validators.coco_validator import COCOValidator
 from ..validators.yolo_validator import YOLOValidator
+
+logger = get_logger(__name__)
 
 
 class Loader:
@@ -79,7 +82,16 @@ class Loader:
 
         # Determine split for each image (simple logic - can be improved)
         for image in coco_data.get("images", []):
-            path = image_dir / self.split_name / Path(image["file_name"]).name
+            if not Path(image["file_name"]).is_absolute():
+                path = image_dir / self.split_name / Path(image["file_name"]).name
+                if not path.exists():
+                    logger.warning(
+                        f"The expected format {path} does not exist. Skipping image."
+                    )
+                    continue
+            else:
+                path = image["file_name"]
+
             image["file_name"] = str(Path(path).resolve())
             if self.split_name not in images_by_split:
                 images_by_split[self.split_name] = []
@@ -132,7 +144,7 @@ class Loader:
             image_dir = Path(source_path).parents[1] / "images"
 
             if not image_dir.exists():
-                raise FileNotFoundError(f"The expected format {image_dir}")
+                logger.warning(f"The expected format {image_dir}")
 
             dataset_info, split_data = self._load_coco_to_split_format(
                 coco_data=coco_data,
