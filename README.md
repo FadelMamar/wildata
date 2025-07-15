@@ -242,6 +242,85 @@ wildtrain dataset import data coco dataset --tile \
   --max-negative-tiles 3
 ```
 
+## Advanced Filtering
+
+WildTrain supports advanced dataset filtering and mining, configurable via YAML or CLI. The filtering pipeline is modular and includes:
+
+- **Feature Extraction**: Extract features from images using configurable models (e.g., DINOv2).
+- **Quality Filtering**: Remove low-quality or outlier samples based on size, aspect ratio, etc.
+- **Clustering**: Cluster samples and subsample for diversity.
+- **Hard Sample Mining**: Identify and select hard/ambiguous samples for focused annotation or training.
+
+### Filter Configuration Example (YAML)
+
+```yaml
+filter_config:
+  feature_extractor:
+    model_name: "facebook/dinov2-with-registers-small"
+    device: "auto"
+  quality:
+    size_filter_enabled: true
+    min_size: 10
+    max_size_ratio: 0.8
+    aspect_ratio_filter_enabled: true
+    min_ratio: 0.1
+    max_ratio: 10.0
+  clustering:
+    enabled: false
+    n_clusters: 50
+    samples_per_cluster: 5
+    method: "kmeans"
+    x_percent: 0.3
+  hard_sample_mining:
+    enabled: false
+    miner_type: "confidence"
+    gt_annotations: null
+    nms_thresholds: null
+    margin_band: 0.1
+    roi_box_size: 128
+    min_roi_size: 32
+    batch_size: 32
+    top_k: null
+    threshold: null
+```
+
+- You can specify this in your import config YAML or override via CLI.
+- All filter groups are fully type-checked and validated using Pydantic models.
+- See `src/wildtrain/filters/filter_config.py` for all available options.
+
+### Using Filtering in the CLI
+
+```bash
+wildtrain dataset import --config my_import_config.yaml
+# or override filter options directly
+wildtrain dataset import ... --filter-config '{"quality": {"min_size": 20}}'
+```
+
+## ROI Extraction and Conversion
+
+WildTrain provides an ROI Adapter for converting object detection datasets (COCO) into ROI (Region of Interest) classification datasets. This is useful for tasks like hard sample mining, error analysis, or training ROI-based classifiers.
+
+### Features
+- Extracts ROIs from bounding boxes in COCO annotations.
+- Supports custom ROI extraction logic via callback.
+- Generates random/background ROIs for unannotated images.
+- Saves ROI crops, labels, class mappings, and statistics.
+- Highly configurable (ROI size, padding, background class, etc.).
+
+### Example Usage (Python)
+```python
+from wildtrain.adapters.roi_adapter import ROIAdapter
+
+# Load COCO data (dict)
+coco_data = ...
+roi_adapter = ROIAdapter(coco_data, roi_box_size=128, min_roi_size=32)
+roi_data = roi_adapter.convert()
+roi_adapter.save(roi_data, output_labels_dir="labels/", output_images_dir="images/")
+```
+
+- See `src/wildtrain/adapters/roi_adapter.py` for all options and details.
+- Useful for mining hard samples, creating ROI classification datasets, or augmenting training data.
+
 ## Project Structure
 
 ```
