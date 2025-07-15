@@ -18,9 +18,7 @@ from .base_adapter import BaseAdapter
 logger = logging.getLogger(__name__)
 
 
-def extract_roi_from_image_bbox(
-    image_path, bbox, roi_box_size=128, min_roi_size=32, padding=None
-):
+def extract_roi_from_image_bbox(image_path, bbox, roi_box_size=128, min_roi_size=32):
     """
     Utility to extract a ROI from an image given a bbox, with padding and resizing.
     Args:
