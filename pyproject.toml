@@ -29,6 +29,7 @@ dependencies = [
     "torchvision>=0.21.0",
     "numpy>=2.3.1",
     "geopy>=2.4.1",
+    "label-studio-converter>=0.0.59",
 ]
 
 [project.scripts]

@@ -1,6 +1,10 @@
+<div align="center">
+  <img src="assets/image.png" alt="PoC"/>
+</div>
+
 # WildTrain Data Pipeline
 
-A comprehensive data pipeline for managing computer vision datasets with support for multiple annotation formats, data transformations, and DVC integration for data versioning.
+A comprehensive data pipeline for managing object detection datasets with support for COCO and YOLO formats, data transformations (tiling, offline data augmentation etc.), and DVC integration for data versioning.
 
 ## Features
 
