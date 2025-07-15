@@ -2,7 +2,7 @@ import json
 import os
 
 import pytest
-from wildtrain.converters.yolo_to_master import YOLOToMasterConverter
+from wildata.converters.yolo_to_master import YOLOToMasterConverter
 
 COCO_DATA_DIR = os.getenv(
     "COCO_DATA_DIR", r"D:\workspace\repos\wildtrain\data\savmap\coco"

@@ -27,22 +27,20 @@ A comprehensive data pipeline for managing computer vision datasets with support
 
 ### Basic Installation
 ```bash
-# Install with pip
-pip install wildtrain
-
-# Or install with uv
-uv add wildtrain
+uv venv --python 3.11
+uv sync
+uv pip install -e .
 ```
 
 ### With DVC Support
 ```bash
 # Install with DVC support
-pip install "wildtrain[dvc]"
+uv pip install "wildata[dvc]"
 
 # For cloud storage support
-pip install "wildtrain[dvc]" "dvc[s3]"    # AWS S3
-pip install "wildtrain[dvc]" "dvc[gcs]"   # Google Cloud Storage
-pip install "wildtrain[dvc]" "dvc[azure]" # Azure Blob Storage
+uv pip install "wildata[dvc]" "dvc[s3]"    # AWS S3
+uv pip install "wildata[dvc]" "dvc[gcs]"   # Google Cloud Storage
+uv pip install "wildata[dvc]" "dvc[azure]" # Azure Blob Storage
 ```
 
 ## Quick Start
@@ -51,48 +49,48 @@ pip install "wildtrain[dvc]" "dvc[azure]" # Azure Blob Storage
 
 ```bash
 # Import a COCO dataset
-wildtrain dataset import /path/to/annotations.json coco my_dataset
+wildata dataset import /path/to/annotations.json coco my_dataset
 
 # Import a YOLO dataset
-wildtrain dataset import /path/to/data.yaml yolo my_dataset
+wildata dataset import /path/to/data.yaml yolo my_dataset
 
 # List all datasets
-wildtrain dataset list
+wildata dataset list
 
 # Export to framework format
-wildtrain dataset export my_dataset coco
+wildata dataset export my_dataset coco
 ```
 
 ### 2. With Data Transformations
 
 ```bash
 # Import with augmentation
-wildtrain dataset import /path/to/data coco my_dataset --augment
+wildata dataset import /path/to/data coco my_dataset --augment
 
 # Import with tiling
-wildtrain dataset import /path/to/data yolo my_dataset --tile
+wildata dataset import /path/to/data yolo my_dataset --tile
 
 # Import with both transformations
-wildtrain dataset import /path/to/data coco my_dataset --augment --tile
+wildata dataset import /path/to/data coco my_dataset --augment --tile
 ```
 
 ### 3. With DVC Integration
 
 ```bash
 # Setup DVC remote storage
-wildtrain dvc setup --storage-type local --storage-path ./dvc_storage
+wildata dvc setup --storage-type local --storage-path ./dvc_storage
 
 # Import with DVC tracking
-wildtrain dataset import /path/to/data coco my_dataset --track-with-dvc
+wildata dataset import /path/to/data coco my_dataset --track-with-dvc
 
 # Check DVC status
-wildtrain dvc status
+wildata dvc status
 
 # Pull data from remote
-wildtrain dvc pull
+wildata dvc pull
 
 # Push data to remote
-wildtrain dvc push
+wildata dvc push
 ```
 
 ## CLI Commands
@@ -100,53 +98,53 @@ wildtrain dvc push
 ### Dataset Management
 ```bash
 # Import dataset
-wildtrain dataset import <source_path> <format> <dataset_name> [options]
+wildata dataset import <source_path> <format> <dataset_name> [options]
 
 # List datasets
-wildtrain dataset list
+wildata dataset list
 
 # Get dataset info
-wildtrain dataset info <dataset_name>
+wildata dataset info <dataset_name>
 
 # Export dataset
-wildtrain dataset export <dataset_name> <format>
+wildata dataset export <dataset_name> <format>
 
 # Delete dataset
-wildtrain dataset delete <dataset_name>
+wildata dataset delete <dataset_name>
 ```
 
 ### DVC Operations
 ```bash
 # Setup DVC
-wildtrain dvc setup [options]
+wildata dvc setup [options]
 
 # Check status
-wildtrain dvc status
+wildata dvc status
 
 # Pull data
-wildtrain dvc pull [dataset_name]
+wildata dvc pull [dataset_name]
 
 # Push data
-wildtrain dvc push
+wildata dvc push
 
 # Create pipeline
-wildtrain dvc pipeline <pipeline_name> [options]
+wildata dvc pipeline <pipeline_name> [options]
 
 # Run pipeline
-wildtrain dvc run <pipeline_name>
+wildata dvc run <pipeline_name>
 ```
 
 ### Data Validation
 ```bash
 # Validate dataset
-wildtrain validate <source_path> <format>
+wildata validate <source_path> <format>
 ```
 
 ## Python API
 
 ### Basic Usage
 ```python
-from wildtrain.pipeline.data_pipeline import DataPipeline
+from wildata.pipeline.data_pipeline import DataPipeline
 
 # Initialize pipeline
 pipeline = DataPipeline("data")
@@ -164,8 +162,8 @@ datasets = pipeline.list_datasets()
 
 ### With DVC Integration
 ```python
-from wildtrain.pipeline.data_pipeline import DataPipeline
-from wildtrain.pipeline.dvc_manager import DVCConfig, DVCStorageType
+from wildata.pipeline.data_pipeline import DataPipeline
+from wildata.pipeline.dvc_manager import DVCConfig, DVCStorageType
 
 # Configure DVC
 config = DVCConfig(
@@ -191,25 +189,25 @@ result = pipeline.import_dataset(
 
 #### Local Storage
 ```bash
-wildtrain dvc setup --storage-type local --storage-path ./dvc_storage
+wildata dvc setup --storage-type local --storage-path ./dvc_storage
 ```
 
 #### AWS S3
 ```bash
-wildtrain dvc setup --storage-type s3 --storage-path s3://my-bucket/datasets
+wildata dvc setup --storage-type s3 --storage-path s3://my-bucket/datasets
 export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
 ```
 
 #### Google Cloud Storage
 ```bash
-wildtrain dvc setup --storage-type gcs --storage-path gs://my-bucket/datasets
+wildata dvc setup --storage-type gcs --storage-path gs://my-bucket/datasets
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
 #### Azure Blob Storage
 ```bash
-wildtrain dvc setup --storage-type azure --storage-path azure://my-container/datasets
+wildata dvc setup --storage-type azure --storage-path azure://my-container/datasets
 export AZURE_STORAGE_CONNECTION_STRING=your_connection_string
 ```
 
@@ -218,10 +216,10 @@ export AZURE_STORAGE_CONNECTION_STRING=your_connection_string
 ### Augmentation
 ```bash
 # Basic augmentation
-wildtrain dataset import data coco dataset --augment
+wildata dataset import data coco dataset --augment
 
 # Custom augmentation parameters
-wildtrain dataset import data coco dataset --augment \
+wildata dataset import data coco dataset --augment \
   --rotation -15 15 \
   --probability 0.7 \
   --brightness 0.8 1.2 \
@@ -232,10 +230,10 @@ wildtrain dataset import data coco dataset --augment \
 ### Tiling
 ```bash
 # Basic tiling
-wildtrain dataset import data coco dataset --tile
+wildata dataset import data coco dataset --tile
 
 # Custom tiling parameters
-wildtrain dataset import data coco dataset --tile \
+wildata dataset import data coco dataset --tile \
   --tile-size 512 \
   --stride 256 \
   --min-visibility 0.1 \
@@ -291,9 +289,9 @@ filter_config:
 ### Using Filtering in the CLI
 
 ```bash
-wildtrain dataset import --config my_import_config.yaml
+wildata dataset import --config my_import_config.yaml
 # or override filter options directly
-wildtrain dataset import ... --filter-config '{"quality": {"min_size": 20}}'
+wildata dataset import ... --filter-config '{"quality": {"min_size": 20}}'
 ```
 
 ## ROI Extraction and Conversion
@@ -318,7 +316,7 @@ roi_data = roi_adapter.convert()
 roi_adapter.save(roi_data, output_labels_dir="labels/", output_images_dir="images/")
 ```
 
-- See `src/wildtrain/adapters/roi_adapter.py` for all options and details.
+- See `src/wildata/adapters/roi_adapter.py` for all options and details.
 - Useful for mining hard samples, creating ROI classification datasets, or augmenting training data.
 
 ## Project Structure
@@ -338,20 +336,20 @@ project/
 ### Complete Workflow Example
 ```bash
 # 1. Setup DVC
-wildtrain dvc setup --storage-type local
+wildata dvc setup --storage-type local
 
 # 2. Import dataset with transformations
-wildtrain dataset import /path/to/raw_data coco my_dataset \
+wildata dataset import /path/to/raw_data coco my_dataset \
   --augment \
   --tile \
   --track-with-dvc
 
 # 3. Export for training
-wildtrain dataset export my_dataset yolo
+wildata dataset export my_dataset yolo
 
 # 4. Check status
-wildtrain dvc status
-wildtrain dataset list
+wildata dvc status
+wildata dataset list
 ```
 
 ### Pipeline Example
@@ -359,21 +357,21 @@ wildtrain dataset list
 # dvc.yaml
 stages:
   import:
-    cmd: wildtrain dataset import data/raw coco raw_dataset --track-with-dvc
+    cmd: wildata dataset import data/raw coco raw_dataset --track-with-dvc
     deps:
       - data/raw
     outs:
       - data/processed
 
   augment:
-    cmd: wildtrain dataset transform raw_dataset --augment --output-name augmented_dataset
+    cmd: wildata dataset transform raw_dataset --augment --output-name augmented_dataset
     deps:
       - data/processed
     outs:
       - data/augmented
 
   export:
-    cmd: wildtrain dataset export augmented_dataset yolo
+    cmd: wildata dataset export augmented_dataset yolo
     deps:
       - data/augmented
     outs:

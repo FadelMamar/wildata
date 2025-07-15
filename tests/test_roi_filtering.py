@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytest
-from wildtrain.filters import (
+from wildata.filters import (
     FilterConfig,
     FilterPipeline,
     ROIFilterPipeline,

@@ -1,8 +1,8 @@
 import os
 
 import pytest
-from wildtrain.validators.coco_validator import COCOValidator
-from wildtrain.validators.yolo_validator import YOLOValidator
+from wildata.validators.coco_validator import COCOValidator
+from wildata.validators.yolo_validator import YOLOValidator
 
 COCO_DATA_DIR = os.getenv("COCO_DATA_DIR", "data/savmap/coco")
 YOLO_DATA_DIR = os.getenv("YOLO_DATA_DIR", "data/savmap/yolo")

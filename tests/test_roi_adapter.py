@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from wildtrain.adapters.roi_adapter import ROIAdapter
+from wildata.adapters.roi_adapter import ROIAdapter
 
 
 def test_roi_adapter_basic():

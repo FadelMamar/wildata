@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from wildtrain.validators.coco_validator import COCOValidator
-from wildtrain.validators.yolo_validator import YOLOValidator
+from wildata.validators.coco_validator import COCOValidator
+from wildata.validators.yolo_validator import YOLOValidator
 
 
 def create_invalid_coco_data():

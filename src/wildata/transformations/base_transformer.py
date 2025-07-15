@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from wildtrain.config import AugmentationConfig, TilingConfig
 
 
 class BaseTransformer(ABC):

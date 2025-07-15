@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import albumentations as A
 import cv2
 import numpy as np
-from wildtrain.config import AugmentationConfig
 
+from ..config import AugmentationConfig
 from .base_transformer import BaseTransformer
 
 

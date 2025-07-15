@@ -6,7 +6,7 @@ import copy
 from typing import Any, Dict, List
 
 import pytest
-from wildtrain.partitioning.merger import COCODatasetMerger
+from wildata.partitioning.merger import COCODatasetMerger
 
 
 def make_synthetic_coco_dataset(

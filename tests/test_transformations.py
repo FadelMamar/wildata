@@ -7,13 +7,13 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pytest
-from wildtrain.config import AugmentationConfig, TilingConfig
-from wildtrain.transformations import (
+from wildata.config import AugmentationConfig, TilingConfig
+from wildata.transformations import (
     AugmentationTransformer,
     TilingTransformer,
     TransformationPipeline,
 )
-from wildtrain.transformations.base_transformer import BaseTransformer
+from wildata.transformations.base_transformer import BaseTransformer
 
 
 def generate_synthetic_data() -> Dict[str, List[Dict[str, Any]]]:
@@ -196,7 +196,7 @@ class TestAugmentationTransformer:
             probability=0.0,  # No flip
             brightness_range=(1.0, 1.0),  # No brightness change
             contrast_range=(1.0, 1.0),  # No contrast change
-            noise_std=0.0,  # No noise
+            noise_std=(0.0, 0.0),  # No noise
         )
         transformer = AugmentationTransformer(config)
 
@@ -228,7 +228,7 @@ class TestAugmentationTransformer:
             probability=0.0,
             brightness_range=(1.0, 1.0),
             contrast_range=(1.0, 1.0),
-            noise_std=0.0,
+            noise_std=(0.0, 0.0),
         )
         transformer = AugmentationTransformer(config)
 
@@ -249,7 +249,7 @@ class TestAugmentationTransformer:
             probability=0.5,
             brightness_range=(0.8, 1.2),
             contrast_range=(0.8, 1.2),
-            noise_std=0.01,
+            noise_std=(0.01, 0.1),
         )
         transformer = AugmentationTransformer(config)
 
@@ -450,7 +450,7 @@ class TestTransformationPipeline:
             probability=0.0,
             brightness_range=(1.0, 1.0),
             contrast_range=(1.0, 1.0),
-            noise_std=0.0,
+            noise_std=(0.0, 0.0),
         )
         transformer = AugmentationTransformer(aug_config)
         pipeline.add_transformer(transformer)
@@ -478,7 +478,7 @@ class TestTransformationPipeline:
             probability=0.0,
             brightness_range=(1.0, 1.0),
             contrast_range=(1.0, 1.0),
-            noise_std=0.0,
+            noise_std=(0.0, 0.0),
         )
         pipeline.add_transformer(AugmentationTransformer(aug_config))
 
@@ -533,7 +533,7 @@ class TestTransformationPipeline:
             probability=0.0,
             brightness_range=(1.0, 1.0),
             contrast_range=(1.0, 1.0),
-            noise_std=0.0,
+            noise_std=(0.0, 0.0),
         )
         pipeline.add_transformer(AugmentationTransformer(aug_config))
 

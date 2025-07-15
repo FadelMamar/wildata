@@ -16,17 +16,16 @@ import typer
 import yaml
 from pydantic import BaseModel, Field, ValidationError, validator
 
-from wildtrain.filters.filter_config import (
+from .config import ROOT, AugmentationConfig, TilingConfig
+from .filters.filter_config import (
     ClusteringFilterConfig,
     FeatureExtractorConfig,
     HardSampleMiningConfig,
     QualityFilterConfig,
 )
-from wildtrain.filters.filter_config import (
+from .filters.filter_config import (
     FilterConfig as FilterConfigModel,
 )
-
-from .config import ROOT, AugmentationConfig, TilingConfig
 from .logging_config import setup_logging
 from .pipeline.data_pipeline import DataPipeline
 from .pipeline.dvc_manager import DVCConfig, DVCManager, DVCStorageType

@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pytest
-from wildtrain.partitioning.partitioning_pipeline import (
+from wildata.partitioning.partitioning_pipeline import (
     PartitioningPipeline,
     PartitioningStrategy,
 )

@@ -3,7 +3,7 @@ import os
 import tempfile
 
 import pytest
-from wildtrain.adapters.yolo_adapter import YOLOAdapter
+from wildata.adapters.yolo_adapter import YOLOAdapter
 
 # Real data paths (can be overridden with environment variables)
 COCO_DATA_DIR = os.getenv("COCO_DATA_DIR", "D:/workspace/savmap/coco")

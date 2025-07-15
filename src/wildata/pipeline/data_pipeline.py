@@ -7,9 +7,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from wildtrain.filters.filter_pipeline import FilterPipeline
-
 from ..config import ROIConfig
+from ..filters.filter_pipeline import FilterPipeline
 from ..logging_config import get_logger
 from ..transformations.transformation_pipeline import TransformationPipeline
 from .data_manager import DataManager
