@@ -11,9 +11,8 @@ This script shows how to:
 
 from pathlib import Path
 
-from wildtrain.adapters.roi_adapter import ROIAdapter
-from wildtrain.pipeline import PathManager,Loader,FrameworkDataManager
-from wildtrain.config import ROIConfig
+from wildata.pipeline import PathManager,Loader,FrameworkDataManager
+from wildata.config import ROIConfig
 
 
 def main():
@@ -21,7 +20,7 @@ def main():
     print("\n=== Saving ROI Data to Disk ===")
     
     ROOT = Path(r"D:\workspace\data\demo-dataset")
-    SOURCE_PATH = r"D:\workspace\savmap\coco\annotations\train.json"
+    SOURCE_PATH = r"D:\workspace\data\savmap_dataset_v2\annotated_py_paul\yolo_format\data_config.yaml"
 
     roi_config = ROIConfig(random_roi_count=1,
                                     roi_box_size=128,
@@ -31,9 +30,9 @@ def main():
 
     loader = Loader()
     split = "train"
-    dataset_name = "roi-demo-savmap"
+    dataset_name = "savmap"
 
-    dataset_info, split_coco_data = loader.load(SOURCE_PATH, "coco", dataset_name, bbox_tolerance=5, split_name=split)
+    dataset_info, split_coco_data = loader.load(SOURCE_PATH, "yolo", dataset_name, bbox_tolerance=5, split_name=split)
 
     path_manager = PathManager(ROOT)
     framework_data_manager = FrameworkDataManager(path_manager)

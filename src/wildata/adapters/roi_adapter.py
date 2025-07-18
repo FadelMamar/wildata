@@ -108,6 +108,17 @@ class ROIAdapter(BaseAdapter):
         )
         self.dark_threshold = dark_threshold
 
+        self.class_mapping = self.create_class_mapping()
+
+    def create_class_mapping(
+        self,
+    ):
+        categories = self.coco_data.get("categories", [])
+        # Create class mapping
+        class_mapping = {cat["id"]: cat["name"] for cat in categories}
+        class_mapping[max(class_mapping.keys()) + 1] = self.background_class
+        return class_mapping
+
     def convert(self) -> Dict[str, Any]:
         """
         Convert the loaded COCO annotation to ROI format for the specified split.
@@ -124,10 +135,6 @@ class ROIAdapter(BaseAdapter):
         """
         images = self.coco_data.get("images", [])
         annotations = self.coco_data.get("annotations", [])
-        categories = self.coco_data.get("categories", [])
-
-        # Create class mapping
-        class_mapping = {cat["id"]: cat["name"] for cat in categories}
 
         # Group annotations by image
         annotations_by_image = {}
@@ -183,7 +190,7 @@ class ROIAdapter(BaseAdapter):
         return {
             "roi_images": roi_images,
             "roi_labels": roi_labels,
-            "class_mapping": class_mapping,
+            "class_mapping": self.class_mapping,
             "statistics": statistics,
         }
 
@@ -531,11 +538,11 @@ class ROIAdapter(BaseAdapter):
 
     def _get_class_id(self, class_name: str) -> int:
         """Get class ID from class name."""
-        categories = self.coco_data.get("categories", [])
-        for cat in categories:
-            if cat["name"] == class_name:
-                return cat["id"]
+        for id_, cat in self.class_mapping.items():
+            if cat == class_name:
+                return id_
 
-        # If not found, create a new class ID
-        max_id = max([cat["id"] for cat in categories]) if categories else 0
-        return max_id + 1
+        # If not found
+        raise ValueError(f"Class name {class_name} not found in categories")
+        # max_id = max([cat["id"] for cat in categories]) if categories else 0
+        # return max_id + 1
