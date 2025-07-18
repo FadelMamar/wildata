@@ -18,6 +18,7 @@ data/*
 *.JPG
 *.JPEG
 
+uv.lock
 
 # Distribution / packaging
 .Python
