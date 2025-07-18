@@ -27,6 +27,7 @@ class PathManager:
 
         # Define standard directory structure
         self._setup_directory_structure()
+        self._list_frameworks = ["coco", "yolo", "roi"]
 
     def _setup_directory_structure(self):
         """Setup the standard directory structure."""
@@ -65,26 +66,22 @@ class PathManager:
 
     def get_framework_format_dir(self, dataset_name: str, framework: str) -> Path:
         """Get the framework format directory for a dataset."""
-        if framework.lower() == "coco":
-            return self.coco_formats_dir / dataset_name
-        elif framework.lower() == "yolo":
-            return self.yolo_formats_dir / dataset_name
-        elif framework.lower() == "roi":
-            return self.roi_formats_dir / dataset_name
+        if framework.lower() in self._list_frameworks:
+            return self.framework_formats_dir / framework / dataset_name
         else:
-            raise ValueError(f"Unsupported framework: {framework}")
+            raise ValueError(
+                f"Unsupported framework: {framework} in {self._list_frameworks}"
+            )
 
     def get_framework_images_dir(self, dataset_name: str, framework: str) -> Path:
         """Get the images directory for a framework format."""
         framework_dir = self.get_framework_format_dir(dataset_name, framework)
-        if framework.lower() == "coco":
-            return framework_dir / "images"
-        elif framework.lower() == "yolo":
-            return framework_dir / "images"
-        elif framework.lower() == "roi":
+        if framework.lower() in self._list_frameworks:
             return framework_dir / "images"
         else:
-            raise ValueError(f"Unsupported framework: {framework}")
+            raise ValueError(
+                f"Unsupported framework: {framework} in {self._list_frameworks}"
+            )
 
     def get_framework_annotations_dir(self, dataset_name: str, framework: str) -> Path:
         """Get the annotations directory for a framework format."""
@@ -180,6 +177,6 @@ class PathManager:
     def list_framework_formats(self, dataset_name: str) -> Dict[str, bool]:
         """List available framework formats for a dataset."""
         formats = {}
-        for framework in ["coco", "yolo"]:
+        for framework in self._list_frameworks:
             formats[framework] = self.framework_format_exists(dataset_name, framework)
         return formats
