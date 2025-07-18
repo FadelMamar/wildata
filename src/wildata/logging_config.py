@@ -11,7 +11,6 @@ def setup_logging(
     level: str = "INFO",
     format_string: Optional[str] = None,
     enable_console: bool = True,
-    enable_file: bool = False,
     log_file: Optional[str] = None,
 ) -> None:
     """
@@ -49,17 +48,14 @@ def setup_logging(
         root_logger.addHandler(console_handler)
 
     # Add file handler if enabled
-    if enable_file:
-        if log_file is None:
-            raise ValueError("log_file must be specified when enable_file is True")
-
+    if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
 
     # Set specific logger levels for verbose modules
-    logging.getLogger("wildtrain").setLevel(log_level)
+    logging.getLogger("wildata").setLevel(log_level)
 
     # Reduce verbosity for some third-party libraries
     logging.getLogger("urllib3").setLevel(logging.WARNING)
