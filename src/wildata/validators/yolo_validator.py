@@ -114,7 +114,7 @@ class YOLOValidator:
 
     def _validate_data_yaml_structure(self):
         """Validate the structure of data.yaml file."""
-        required_fields = ["train", "val", "test", "names"]
+        required_fields = ["train", "names"]
         for field in required_fields:
             if field not in self.yolo_data:
                 self.errors.append(f"Missing required field: {field}")

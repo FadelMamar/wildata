@@ -175,7 +175,7 @@ class YOLOToMasterConverter(BaseConverter):
             # Create COCO image entry
             coco_image = {
                 "id": img_id,
-                "file_name": os.path.basename(img_file),
+                "file_name": img_file,
                 "width": width,
                 "height": height,
             }
@@ -197,7 +197,8 @@ class YOLOToMasterConverter(BaseConverter):
         image_files = []
         for file in os.listdir(images_dir):
             if any(file.lower().endswith(ext) for ext in image_extensions):
-                image_files.append(os.path.join(images_dir, file))
+                p = (Path(images_dir) / file).resolve().as_posix()
+                image_files.append(p)
         return sorted(image_files)
 
     def _get_label_file_path(self, image_file: str) -> str:
@@ -208,7 +209,7 @@ class YOLOToMasterConverter(BaseConverter):
         assert os.path.exists(image_file), f"Image file does not exist: {image_file}"
         with Image.open(image_file) as image:
             width, height = image.size
-            return width, height
+        return width, height
 
     def _parse_yolo_label_file(
         self, label_file: str, image_id: int, width: int, height: int

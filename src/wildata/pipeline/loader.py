@@ -157,7 +157,7 @@ class Loader:
             validator = YOLOValidator(source_path)
             is_valid, errors, warnings = validator.validate()
             if not is_valid:
-                raise ValueError("YOLO validation failed")
+                raise ValueError(f"YOLO validation failed {errors}")
 
             # Create converter and convert YOLO to COCO format
             converter = YOLOToMasterConverter(source_path)
