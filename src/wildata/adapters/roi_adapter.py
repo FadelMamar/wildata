@@ -18,7 +18,9 @@ from .base_adapter import BaseAdapter
 logger = logging.getLogger(__name__)
 
 
-def extract_roi_from_image_bbox(image_path, bbox, roi_box_size=128, min_roi_size=32):
+def extract_roi_from_image_bbox(
+    image_path, bbox, roi_box_size=128, min_roi_size=32
+) -> Image.Image | None:
     """
     Utility to extract a ROI from an image given a bbox, with padding and resizing.
     Args:
@@ -30,22 +32,21 @@ def extract_roi_from_image_bbox(image_path, bbox, roi_box_size=128, min_roi_size
     Returns:
         PIL.Image or None
     """
-    try:
-        with Image.open(image_path) as img:
-            x, y, w, h = bbox
-            pad_x = roi_box_size // 2
-            pad_y = roi_box_size // 2
-            x1 = max(0, int(x - pad_x))
-            y1 = max(0, int(y - pad_y))
-            x2 = int(x + w + pad_x)
-            y2 = int(y + h + pad_y)
-            if (x2 - x1) < min_roi_size or (y2 - y1) < min_roi_size:
-                return None
-            roi = img.crop((x1, y1, x2, y2))
-            roi = roi.resize((roi_box_size, roi_box_size))
-            return roi
-    except Exception:
-        return None
+    with Image.open(image_path) as img:
+        x, y, w, h = bbox
+        pad_x = roi_box_size // 2
+        pad_y = roi_box_size // 2
+        x1 = max(0, int(x - pad_x))
+        y1 = max(0, int(y - pad_y))
+        x2 = int(x + w + pad_x)
+        y2 = int(y + h + pad_y)
+        if (x2 - x1) < min_roi_size or (y2 - y1) < min_roi_size:
+            logger.warning(f"ROI size is too small: {x2 - x1}x{y2 - y1}")
+            return None
+        roi = img.crop((x1, y1, x2, y2))
+        roi = roi.resize((roi_box_size, roi_box_size))
+
+    return roi
 
 
 class ROIAdapter(BaseAdapter):
@@ -211,10 +212,9 @@ class ROIAdapter(BaseAdapter):
             logger.warning("No ROI data to save")
             return
 
-        # Save ROI labels as JSON
+        # Create output directories
         labels_dir = Path(output_labels_dir)
         labels_dir.mkdir(parents=True, exist_ok=True)
-        self._save_roi_labels_json(roi_data["roi_labels"], labels_dir)
 
         # Save class mapping
         self._save_class_mapping(roi_data["class_mapping"], labels_dir)
@@ -223,7 +223,10 @@ class ROIAdapter(BaseAdapter):
         self._save_statistics(roi_data["statistics"], labels_dir)
 
         # Save ROI images
-        self._save_roi_images(roi_data["roi_images"], output_images_dir)
+        image_paths = self._save_roi_images(roi_data["roi_images"], output_images_dir)
+
+        # Save ROI labels as JSON
+        self._save_roi_labels_json(roi_data["roi_labels"], labels_dir, image_paths)
 
         logger.info(
             f"Saved {len(roi_data['roi_images'])} ROI images to {output_images_dir}"
@@ -410,8 +413,7 @@ class ROIAdapter(BaseAdapter):
         y1 = max(0, y - pad_y)
         x2 = min(width, x + pad_x)
         y2 = min(height, y + pad_y)
-        roi_box = [x1, y1, x2, y2]
-        roi_box = list(map(int, roi_box))
+        roi_box = list(map(int, [x1, y1, x2, y2]))
         roi_filename = f"{class_name}_roi_{counter:06d}.{self.save_format}"
         roi_image_info = {
             "roi_id": counter,
@@ -435,7 +437,9 @@ class ROIAdapter(BaseAdapter):
             "next_counter": counter + 1,
         }
 
-    def _create_random_roi(self, image: Dict, counter: int) -> Optional[Dict[str, Any]]:
+    def _create_random_roi(
+        self, image: Dict, counter: int, max_attempts: int = 5
+    ) -> Optional[Dict[str, Any]]:
         """
         Create a random ROI for unannotated image.
 
@@ -455,60 +459,97 @@ class ROIAdapter(BaseAdapter):
         y = random.randint(h // 2, height - h // 2)
 
         bbox = [x, y, w, h]
+        roi_result = None
+        for _ in range(max_attempts):
+            roi_result = self._create_roi_from_bbox(
+                image, bbox, self.background_class, counter
+            )
+            if roi_result is None:
+                continue
+            bbox = roi_result["roi_image"]["bbox"]
+            path = roi_result["roi_image"]["original_image_path"]
+            cropped_img = self.crop_image(path, bbox)
+            if not self.is_image_dark(cropped_img):
+                return roi_result
 
-        return self._create_roi_from_bbox(image, bbox, self.background_class, counter)
+        return roi_result
 
-    def _save_roi_images(self, roi_images: List[Dict], output_dir: Path | str) -> None:
+    def is_image_dark(self, image: np.ndarray) -> bool:
+        return (
+            np.isclose(image, 0.0, atol=10).sum() / image.size
+        ) > self.dark_threshold
+
+    def crop_image(
+        self, image_path: str | Path, bbox: Tuple[float, float, float, float]
+    ) -> np.ndarray:
+        with Image.open(image_path) as img:
+            cropped_img = img.crop(bbox)
+            cropped_img = np.array(cropped_img)
+        return cropped_img
+
+    def _save_roi_images(
+        self, roi_images: List[Dict], output_dir: Path | str
+    ) -> List[str]:
         """Save ROI images to disk."""
 
         if isinstance(output_dir, str):
             output_dir = Path(output_dir)
 
-        def _save_one_image(roi_info: Dict):
+        def _save_one_image(roi_info: Dict) -> Tuple[bool, str, str]:
             try:
-                with Image.open(roi_info["original_image_path"]) as img:
-                    roi_path = output_dir / roi_info["roi_filename"]
-                    cropped_img = img.crop(roi_info["bbox"])
-                    cropped_img = np.array(cropped_img)
-                    if (
-                        np.isclose(cropped_img, 0.0, atol=10).sum() / cropped_img.size
-                        < self.dark_threshold
-                    ):
-                        if cropped_img.size != (self.roi_box_size, self.roi_box_size):
-                            cropped_img = self.pad_roi(image=cropped_img)["image"]
-                        Image.fromarray(cropped_img).save(roi_path)
-
-                    return True, "Success"
-            except Exception:
+                roi_path = str(output_dir / roi_info["roi_filename"])
+                cropped_img = self.crop_image(
+                    roi_info["original_image_path"], roi_info["bbox"]
+                )
+                if not self.is_image_dark(cropped_img):
+                    if cropped_img.size != (self.roi_box_size, self.roi_box_size):
+                        cropped_img = self.pad_roi(image=cropped_img)["image"]
+                    Image.fromarray(cropped_img).save(roi_path)
+                    return True, "Success", os.path.basename(roi_path)
+                else:
+                    return False, "Dark image", "None"
+            except Exception as e:
                 return (
                     False,
-                    f"Error saving ROI image {roi_info['roi_filename']}: {traceback.format_exc()}",
+                    f"Error saving ROI image {roi_info['roi_filename']}: {e}",
+                    "None",
                 )
 
         failures = 0
         errors = []
+        paths = []
         with ThreadPoolExecutor(max_workers=3) as executor:
-            for success, error_msg in tqdm(
+            for success, error_msg, path in tqdm(
                 executor.map(_save_one_image, roi_images),
                 desc="Saving ROI images",
                 total=len(roi_images),
             ):
                 if not success:
-                    logger.warning(error_msg)
                     failures += 1
                     errors.append(error_msg)
+                else:
+                    paths.append(path)
         if failures > 0:
             logger.warning(f"Failed to save {failures}/{len(roi_images)} ROI images")
-            print(errors)
+            logger.warning(set(errors))
+        return paths
 
     def _save_roi_labels_json(
-        self, labels_data: Dict[str, Any], output_dir: Path
+        self,
+        labels_data: List[Dict[str, Any]],
+        output_dir: Path,
+        save_image_paths: List[str],
     ) -> None:
-        """Save ROI labels as JSON file."""
+        """Save ROI labels as JSON file, only for images that have been saved."""
         labels_file = output_dir / "roi_labels.json"
 
+        # Filter labels_data to only include entries whose file_name is in save_image_paths
+        filtered_labels = [
+            label for label in labels_data if label.get("file_name") in save_image_paths
+        ]
+
         with open(labels_file, "w", encoding="utf-8") as f:
-            json.dump(labels_data, f, indent=2, ensure_ascii=False)
+            json.dump(filtered_labels, f, indent=2, ensure_ascii=False)
 
     def _save_class_mapping(
         self, class_mapping: Dict[int, str], output_dir: Path
@@ -541,8 +582,4 @@ class ROIAdapter(BaseAdapter):
         for id_, cat in self.class_mapping.items():
             if cat == class_name:
                 return id_
-
-        # If not found
         raise ValueError(f"Class name {class_name} not found in categories")
-        # max_id = max([cat["id"] for cat in categories]) if categories else 0
-        # return max_id + 1
