@@ -28,6 +28,11 @@ class PathManager:
         # Define standard directory structure
         self._setup_directory_structure()
         self._list_frameworks = ["coco", "yolo", "roi"]
+        self._framework_formats_dir = {
+            "coco": self.coco_formats_dir,
+            "yolo": self.yolo_formats_dir,
+            "roi": self.roi_formats_dir,
+        }
 
     def _setup_directory_structure(self):
         """Setup the standard directory structure."""
@@ -172,6 +177,19 @@ class PathManager:
                     dataset_info_file = dataset_dir / "dataset_info.json"
                     if dataset_info_file.exists():
                         datasets.append(dataset_dir.name)
+        return datasets
+
+    def list_framework_datasets(self, framework: str) -> list:
+        """List all available datasets for a framework."""
+        datasets = []
+        framework_dir = self._framework_formats_dir.get(framework)
+        if framework_dir:
+            for dataset_dir in framework_dir.iterdir():
+                if dataset_dir.is_dir():
+                    datasets.append(dataset_dir.name)
+        else:
+            raise ValueError(f"Framework directory {framework_dir} does not exist")
+
         return datasets
 
     def list_framework_formats(self, dataset_name: str) -> Dict[str, bool]:

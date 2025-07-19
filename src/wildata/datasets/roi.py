@@ -52,9 +52,9 @@ class ROIDataset(Dataset):
         # Load class mapping
         class_mapping_path = self.labels_dir / "class_mapping.json"
         with open(class_mapping_path, "r", encoding="utf-8") as f:
-            self.class_mapping = json.load(f)
-        # Convert keys to int if needed
-        self.class_mapping = {int(k): v for k, v in self.class_mapping.items()}
+            class_mapping = json.load(f)
+            assert isinstance(class_mapping, dict), "Class mapping must be a dictionary"
+            self.class_mapping = {int(k): v for k, v in class_mapping.items()}
 
         # Load ROI labels
         roi_labels_path = self.labels_dir / "roi_labels.json"
@@ -89,11 +89,9 @@ def load_all_roi_datasets(
     If concat=True, returns (ConcatDataset, class_mapping) instead, after checking all class_mappings are identical.
     """
     path_manager = PathManager(root_data_directory)
-    all_datasets = path_manager.list_datasets()
+    all_datasets = path_manager.list_framework_datasets(framework="roi")
     roi_datasets = {}
     for dataset_name in all_datasets:
-        if not path_manager.framework_format_exists(dataset_name, "roi"):
-            continue
         # Check if split exists (by checking for roi_labels.json in split dir)
         split_labels_dir = path_manager.get_framework_split_annotations_dir(
             dataset_name, framework="roi", split=split
@@ -166,6 +164,6 @@ def load_all_splits_concatenated(
                 raise ValueError(
                     f"Class mappings are not identical for split '{split}'. Cannot concatenate."
                 )
-        concat_dataset = ConcatDataset(list(roi_datasets.values()))
+        concat_dataset = ConcatDataset(roi_datasets.values())
         result[split] = concat_dataset
     return result
