@@ -117,12 +117,12 @@ def load_all_roi_datasets(
             )
             roi_datasets[dataset_name] = ds
         except Exception as e:
-            logger.warning(f"Error loading dataset {dataset_name}: {e}")
-            continue
+            logger.error(f"Error loading dataset {dataset_name}: {e}")
+            raise ValueError(
+                f"Error loading dataset {dataset_name}: {traceback.format_exc()}"
+            )
 
     if concat and len(roi_datasets) > 1:
-        if not roi_datasets:
-            raise ValueError("No ROI datasets found to concatenate.")
         # Check all class_mappings are identical
         class_mappings = [ds.class_mapping for ds in roi_datasets.values()]
         first_mapping = class_mappings[0]

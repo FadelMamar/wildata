@@ -3,6 +3,7 @@ Command-line interface for the WildTrain data pipeline using Typer.
 """
 
 import ast
+import datetime
 import json
 import os
 import shutil
@@ -101,7 +102,10 @@ def main(
     # Setup logging
     if verbose:
         log_level = "DEBUG"
-    setup_logging(level=log_level)
+    date_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    setup_logging(
+        level=log_level, log_file=str(ROOT / "logs" / f"cli_log_{date_time}.log")
+    )
 
     if data_dir:
         state.data_dir = data_dir

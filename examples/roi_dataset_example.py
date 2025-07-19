@@ -1,8 +1,8 @@
 # If you don't have matplotlib, install it with: pip install matplotlib
 from pathlib import Path
 
-from wildata.datasets.roi import ROIDataset
-
+from wildata.datasets.roi import ROIDataset, load_all_roi_datasets
+from tqdm import tqdm
 # Set the root data directory and dataset name
 root_data_directory = Path(r"D:\workspace\data\demo-dataset")
 dataset_name = "savmap"
@@ -14,6 +14,9 @@ roi_dataset = ROIDataset(
     split=split,
     root_data_directory=root_data_directory,
 )
+
+for _ in tqdm(roi_dataset):
+    continue
 
 print(f"Number of samples in {split} split: {len(roi_dataset)}")
 
