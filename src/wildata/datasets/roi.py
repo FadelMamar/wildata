@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional
 import torch
 from torch.utils.data import ConcatDataset, Dataset
 from torchvision.io import decode_image
+from torchvision.transforms.v2 import functional as F
 
 from ..logging_config import get_logger
 from ..pipeline.path_manager import PathManager
@@ -67,7 +68,8 @@ class ROIDataset(Dataset):
     def __getitem__(self, idx: int):
         label_info = self.roi_labels[idx]
         img_path = self.images_dir / label_info["file_name"]
-        image = decode_image(img_path)
+        image = decode_image(img_path, mode="RGB")
+        image = F.to_dtype_image(image, dtype=torch.float32, scale=True)
         label = label_info["class_id"]
         if self.transform:
             image = self.transform(image)

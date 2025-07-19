@@ -49,6 +49,15 @@ class PathManager:
         self.dvc_dir = ROOT / ".dvc"
         self.config_dir = ROOT / "config"
 
+    def get_framework_dir(self, framework: str) -> Path:
+        """Get the framework directory."""
+        if framework.lower() in self._list_frameworks:
+            return self._framework_formats_dir[framework.lower()]
+        else:
+            raise ValueError(
+                f"Unsupported framework: {framework} in {self._list_frameworks}"
+            )
+
     def get_dataset_dir(self, dataset_name: str) -> Path:
         """Get the data directory for a specific dataset."""
         return self.data_dir / dataset_name

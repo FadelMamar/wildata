@@ -29,7 +29,7 @@ def main():
                                     roi_callback=None)
 
     loader = Loader()
-    split = "train"
+    split = "val"
     dataset_name = "savmap"
 
     dataset_info, split_coco_data = loader.load(SOURCE_PATH, "yolo", dataset_name, bbox_tolerance=5, split_name=split)
