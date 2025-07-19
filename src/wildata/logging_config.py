@@ -7,59 +7,21 @@ import sys
 from typing import Optional
 
 
-def setup_logging(
-    level: str = "INFO",
-    format_string: Optional[str] = None,
-    enable_console: bool = True,
-    log_file: Optional[str] = None,
-) -> None:
-    """
-    Setup logging configuration for the WildTrain pipeline.
-
-    Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        format_string: Custom format string for log messages
-        enable_console: Whether to enable console logging
-        enable_file: Whether to enable file logging
-        log_file: Path to log file (required if enable_file is True)
-    """
-    # Convert string level to logging constant
-    log_level = getattr(logging, level.upper(), logging.INFO)
-
-    # Default format string
-    if format_string is None:
-        format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-    # Create formatter
-    formatter = logging.Formatter(format_string)
-
-    # Get root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-
-    # Clear existing handlers
-    root_logger.handlers.clear()
-
-    # Add console handler if enabled
-    if enable_console:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(log_level)
-        console_handler.setFormatter(formatter)
-        root_logger.addHandler(console_handler)
-
-    # Add file handler if enabled
-    if log_file:
+def setup_logging(level="INFO", log_file: Optional[str] = None):
+    """Setup logging configuration."""
+    level = getattr(logging, level.upper(), logging.INFO)
+    handlers = [
+        logging.StreamHandler(sys.stdout),
+    ]
+    if isinstance(log_file, str):
         file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
+        handlers.append(file_handler)
 
-    # Set specific logger levels for verbose modules
-    logging.getLogger("wildata").setLevel(log_level)
-
-    # Reduce verbosity for some third-party libraries
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
 
 
 def get_logger(name: str) -> logging.Logger:
