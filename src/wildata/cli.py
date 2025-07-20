@@ -9,15 +9,16 @@ import os
 import shutil
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import typer
 import yaml
-from pydantic import BaseModel, Field, ValidationError, validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from .config import ROOT, AugmentationConfig, TilingConfig
+from .config import ROOT, AugmentationConfig, ROIConfig, TilingConfig
 from .filters.filter_config import (
     ClusteringFilterConfig,
     FeatureExtractorConfig,
@@ -35,6 +36,244 @@ from .transformations import (
     TilingTransformer,
     TransformationPipeline,
 )
+
+
+class ROIConfigCLI(BaseModel):
+    """ROI configuration for CLI."""
+
+    random_roi_count: int = Field(default=1, description="Number of random ROIs")
+    roi_box_size: int = Field(default=128, description="ROI box size")
+    min_roi_size: int = Field(default=32, description="Minimum ROI size")
+    dark_threshold: float = Field(default=0.5, description="Dark threshold")
+    background_class: str = Field(
+        default="background", description="Background class name"
+    )
+    save_format: str = Field(default="jpg", description="Save format")
+    quality: int = Field(default=95, description="Image quality")
+
+    @field_validator("random_roi_count", "roi_box_size", "min_roi_size", "quality")
+    @classmethod
+    def validate_positive_integers(cls, v):
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("dark_threshold")
+    @classmethod
+    def validate_dark_threshold(cls, v):
+        if not 0 <= v <= 1:
+            raise ValueError("dark_threshold must be between 0 and 1")
+        return v
+
+    @field_validator("save_format")
+    @classmethod
+    def validate_save_format(cls, v):
+        if v not in ["jpg", "jpeg", "png"]:
+            raise ValueError("save_format must be one of: jpg, jpeg, png")
+        return v
+
+
+class TilingConfigCLI(BaseModel):
+    """Tiling configuration for CLI."""
+
+    tile_size: int = Field(default=512, description="Tile size")
+    stride: int = Field(default=416, description="Stride between tiles")
+    min_visibility: float = Field(default=0.1, description="Minimum visibility ratio")
+    max_negative_tiles_in_negative_image: int = Field(
+        default=3, description="Max negative tiles in negative image"
+    )
+    negative_positive_ratio: float = Field(
+        default=1.0, description="Negative to positive ratio"
+    )
+    dark_threshold: float = Field(default=0.5, description="Dark threshold")
+
+    @field_validator("tile_size", "stride", "max_negative_tiles_in_negative_image")
+    @classmethod
+    def validate_positive_integers(cls, v):
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("min_visibility", "dark_threshold")
+    @classmethod
+    def validate_visibility_threshold(cls, v):
+        if not 0 <= v <= 1:
+            raise ValueError("Value must be between 0 and 1")
+        return v
+
+    @field_validator("negative_positive_ratio")
+    @classmethod
+    def validate_ratio(cls, v):
+        if v < 0:
+            raise ValueError("Ratio must be non-negative")
+        return v
+
+
+class AugmentationConfigCLI(BaseModel):
+    """Augmentation configuration for CLI."""
+
+    rotation_range: Tuple[float, float] = Field(
+        default=(-45, 45), description="Rotation range"
+    )
+    probability: float = Field(
+        default=1.0, description="Probability of applying augmentation"
+    )
+    brightness_range: Tuple[float, float] = Field(
+        default=(-0.2, 0.4), description="Brightness range"
+    )
+    scale: Tuple[float, float] = Field(default=(1.0, 2.0), description="Scale range")
+    translate: Tuple[float, float] = Field(
+        default=(-0.1, 0.2), description="Translation range"
+    )
+    shear: Tuple[float, float] = Field(default=(-5, 5), description="Shear range")
+    contrast_range: Tuple[float, float] = Field(
+        default=(-0.2, 0.4), description="Contrast range"
+    )
+    noise_std: Tuple[float, float] = Field(
+        default=(0.01, 0.1), description="Noise standard deviation range"
+    )
+    seed: int = Field(default=41, description="Random seed")
+    num_transforms: int = Field(default=2, description="Number of transformations")
+
+    @field_validator("probability")
+    @classmethod
+    def validate_probability(cls, v):
+        if not 0 <= v <= 1:
+            raise ValueError("Probability must be between 0 and 1")
+        return v
+
+    @field_validator("num_transforms", "seed")
+    @classmethod
+    def validate_positive_integers(cls, v):
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+
+class BboxClippingConfigCLI(BaseModel):
+    """Bounding box clipping configuration for CLI."""
+
+    tolerance: int = Field(default=5, description="Tolerance for clipping")
+    skip_invalid: bool = Field(default=False, description="Skip invalid annotations")
+
+    @field_validator("tolerance")
+    @classmethod
+    def validate_tolerance(cls, v):
+        if v < 0:
+            raise ValueError("Tolerance must be non-negative")
+        return v
+
+
+class TransformationConfigCLI(BaseModel):
+    """Transformation pipeline configuration for CLI."""
+
+    enable_bbox_clipping: bool = Field(default=True, description="Enable bbox clipping")
+    bbox_clipping: Optional[BboxClippingConfigCLI] = Field(
+        default=None, description="Bbox clipping config"
+    )
+
+    enable_augmentation: bool = Field(default=False, description="Enable augmentation")
+    augmentation: Optional[AugmentationConfigCLI] = Field(
+        default=None, description="Augmentation config"
+    )
+
+    enable_tiling: bool = Field(default=False, description="Enable tiling")
+    tiling: Optional[TilingConfigCLI] = Field(default=None, description="Tiling config")
+
+
+class ImportDatasetConfig(BaseModel):
+    """Configuration for importing datasets."""
+
+    # Required parameters
+    source_path: str = Field(..., description="Path to source dataset")
+    source_format: str = Field(..., description="Source format (coco/yolo)")
+    dataset_name: str = Field(..., description="Name for the dataset")
+
+    # Pipeline configuration
+    root: str = Field(default="data", description="Root directory for data storage")
+    split_name: str = Field(default="train", description="Split name (train/val/test)")
+    enable_dvc: bool = Field(default=True, description="Enable DVC integration")
+
+    # Processing options
+    processing_mode: str = Field(
+        default="batch", description="Processing mode (streaming/batch)"
+    )
+    track_with_dvc: bool = Field(default=False, description="Track dataset with DVC")
+    bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
+
+    # Label Studio options
+    dotenv_path: Optional[str] = Field(default=None, description="Path to .env file")
+    ls_xml_config: Optional[str] = Field(
+        default=None, description="Label Studio XML config path"
+    )
+    ls_parse_config: bool = Field(
+        default=False, description="Parse Label Studio config"
+    )
+
+    # ROI configuration
+    roi_config: Optional[ROIConfigCLI] = Field(
+        default=None, description="ROI configuration"
+    )
+
+    # Transformation pipeline configuration
+    transformations: Optional[TransformationConfigCLI] = Field(
+        default=None, description="Transformation pipeline config"
+    )
+
+    # Validation methods
+    @field_validator("source_format")
+    @classmethod
+    def validate_source_format(cls, v):
+        if v not in ["coco", "yolo"]:
+            raise ValueError('source_format must be either "coco" or "yolo"')
+        return v
+
+    @field_validator("split_name")
+    @classmethod
+    def validate_split_name(cls, v):
+        if v not in ["train", "val", "test"]:
+            raise ValueError("split_name must be one of: train, val, test")
+        return v
+
+    @field_validator("processing_mode")
+    @classmethod
+    def validate_processing_mode(cls, v):
+        if v not in ["streaming", "batch"]:
+            raise ValueError('processing_mode must be either "streaming" or "batch"')
+        return v
+
+    @field_validator("source_path")
+    @classmethod
+    def validate_source_path(cls, v):
+        if not Path(v).exists():
+            raise ValueError(f"Source path does not exist: {v}")
+        return v
+
+    @field_validator("dotenv_path")
+    @classmethod
+    def validate_dotenv_path(cls, v):
+        if v is not None and not Path(v).exists():
+            raise ValueError(f"Dotenv path does not exist: {v}")
+        return v
+
+    @field_validator("ls_xml_config")
+    @classmethod
+    def validate_ls_xml_config(cls, v):
+        if v is not None and not Path(v).exists():
+            raise ValueError(f"Label Studio XML config path does not exist: {v}")
+        return v
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "ImportDatasetConfig":
+        """Load configuration from YAML file."""
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return cls.model_validate(data)
+
+    def to_yaml(self, path: str) -> None:
+        """Save configuration to YAML file."""
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(self.model_dump(), f, default_flow_style=False, indent=2)
 
 
 class ImportConfig(BaseModel):
@@ -60,894 +299,358 @@ class ImportConfig(BaseModel):
 __version__ = "0.1.0"
 
 app = typer.Typer(
-    name="wildtrain",
-    help="WildTrain Data Pipeline - Manage datasets in master format and create framework-specific formats",
+    name="wildata",
+    help="Data Pipeline - Manage datasets in master format and create framework-specific formats",
     add_completion=False,
     rich_markup_mode="rich",
 )
 
 
-class AppState:
-    data_dir: Path = ROOT / "data"
-
-
-state = AppState()
-
-
-@app.callback()
-def main(
-    version: Optional[bool] = typer.Option(
-        None,
-        "--version",
-        "-v",
-        help="Show the application's version and exit.",
-        is_eager=True,
-        callback=lambda v: (
-            typer.echo(f"wildtrain version {__version__}") or raise_(typer.Exit())
-            if v
-            else None
-        ),
-    ),
-    data_dir: Optional[Path] = typer.Option(
-        None, "--data-dir", help="Directory to store master data (default: ./data)"
-    ),
-    log_level: str = typer.Option(
-        "INFO", "--log-level", help="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
-    ),
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Enable verbose logging (DEBUG level)"
-    ),
-):
-    """WildTrain Data Pipeline CLI."""
-    # Setup logging
-    if verbose:
-        log_level = "DEBUG"
-    date_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    setup_logging(
-        level=log_level, log_file=str(ROOT / "logs" / f"cli_log_{date_time}.log")
-    )
-
-    if data_dir:
-        state.data_dir = data_dir
-    else:
-        state.data_dir = Path.cwd() / "data"
-
-
-def raise_(ex):
-    raise ex
-
-
-# Helper to get pipeline with correct split and optional transformation pipeline
-
-
-def get_pipeline(
-    split_name: str, transformation_pipeline=None, enable_dvc=True, filter_pipeline=None
-):
-    return DataPipeline(
-        str(state.data_dir),
-        split_name,
-        transformation_pipeline=transformation_pipeline,
-        enable_dvc=enable_dvc,
-        filter_pipeline=filter_pipeline,
-    )
-
-
-# Dataset command group
-
-dataset_app = typer.Typer(help="Dataset management commands.")
-
-
-@dataset_app.command("import")
+@app.command()
 def import_dataset(
-    config: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        "-c",
-        help="Path to YAML config file for import (see docs for structure)",
+    source_path: str = typer.Argument(..., help="Path to source dataset"),
+    source_format: str = typer.Option(
+        ..., "--format", "-f", help="Source format (coco/yolo)"
     ),
-    source_path: Optional[str] = typer.Option(
-        None, help="Path to the source dataset (overrides config)"
+    dataset_name: str = typer.Option(..., "--name", "-n", help="Dataset name"),
+    root: str = typer.Option(
+        "data", "--root", "-r", help="Root directory for data storage"
     ),
-    format_type: Optional[str] = typer.Option(
-        None, help="Format type of the source dataset (overrides config)"
+    split_name: str = typer.Option(
+        "train", "--split", "-s", help="Split name (train/val/test)"
     ),
-    dataset_name: Optional[str] = typer.Option(
-        None, help="Name for the dataset in master storage (overrides config)"
+    processing_mode: str = typer.Option(
+        "batch", "--mode", "-m", help="Processing mode (streaming/batch)"
     ),
-    track_with_dvc: Optional[bool] = typer.Option(None, help="Track dataset with DVC"),
-    augment: Optional[bool] = typer.Option(None, help="Apply data augmentation"),
-    rotation_range: Optional[Tuple[float, float]] = typer.Option(
-        None, help="Rotation range in degrees"
+    track_with_dvc: bool = typer.Option(
+        False, "--track-dvc", help="Track dataset with DVC"
     ),
-    probability: Optional[float] = typer.Option(
-        None, help="Augmentation probability (0-1)"
+    bbox_tolerance: int = typer.Option(
+        5, "--bbox-tolerance", help="Bbox validation tolerance"
     ),
-    brightness_range: Optional[Tuple[float, float]] = typer.Option(
-        None, help="Brightness range"
+    dotenv_path: Optional[str] = typer.Option(
+        None, "--dotenv", help="Path to .env file"
     ),
-    contrast_range: Optional[Tuple[float, float]] = typer.Option(
-        None, help="Contrast range"
+    ls_xml_config: Optional[str] = typer.Option(
+        None, "--ls-config", help="Label Studio XML config path"
     ),
-    noise_std: Optional[Tuple[float, float]] = typer.Option(
-        None, help="Noise standard deviation range (min,max)"
+    ls_parse_config: bool = typer.Option(
+        False, "--parse-ls-config", help="Parse Label Studio config"
     ),
-    tile: Optional[bool] = typer.Option(None, help="Apply image tiling"),
-    tile_size: Optional[int] = typer.Option(None, help="Tile size in pixels"),
-    stride: Optional[int] = typer.Option(None, help="Stride between tiles"),
-    min_visibility: Optional[float] = typer.Option(
-        None, help="Minimum object visibility in tiles (0-1)"
+    # Transformation pipeline options
+    enable_bbox_clipping: bool = typer.Option(
+        True, "--enable-bbox-clipping", help="Enable bbox clipping"
     ),
-    max_negative_tiles: Optional[int] = typer.Option(
-        None, help="Maximum negative tiles per image"
+    bbox_clipping_tolerance: int = typer.Option(
+        5, "--bbox-clipping-tolerance", help="Bbox clipping tolerance"
     ),
-    negative_positive_ratio: Optional[float] = typer.Option(
-        None, help="Negative to positive tile ratio"
+    skip_invalid_bbox: bool = typer.Option(
+        False, "--skip-invalid-bbox", help="Skip invalid bboxes"
     ),
-    filter_config: Optional[FilterConfigModel] = typer.Option(
-        None, help="Filter config as a dict (overrides config file)"
+    enable_augmentation: bool = typer.Option(
+        False, "--enable-augmentation", help="Enable data augmentation"
     ),
+    augmentation_probability: float = typer.Option(
+        1.0, "--aug-prob", help="Augmentation probability"
+    ),
+    num_augmentations: int = typer.Option(
+        2, "--num-augs", help="Number of augmentations per image"
+    ),
+    enable_tiling: bool = typer.Option(
+        False, "--enable-tiling", help="Enable image tiling"
+    ),
+    tile_size: int = typer.Option(512, "--tile-size", help="Tile size"),
+    tile_stride: int = typer.Option(416, "--tile-stride", help="Tile stride"),
+    min_visibility: float = typer.Option(
+        0.1, "--min-visibility", help="Minimum visibility ratio"
+    ),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to YAML config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """
-    Import a dataset from COCO or YOLO format with optional transformations, filtering, and DVC tracking.
-    You can specify all arguments in a YAML config file using --config/-c. CLI arguments override config values.
-    """
-    # 1. Load YAML config if provided
-    config_dict = {}
-    if config:
+    """Import a dataset from various formats into the WildData pipeline."""
+
+    # Load config from file if provided
+    if config_file:
         try:
-            with open(config, "r", encoding="utf-8") as f:
-                config_dict = yaml.safe_load(f) or {}
-            typer.echo(f"[CONFIG] Loaded config from {config}")
+            config = ImportDatasetConfig.from_yaml(config_file)
         except Exception as e:
-            typer.echo(f"❌ Error loading config file: {e}")
+            typer.echo(f"❌ Failed to load config file: {str(e)}")
             raise typer.Exit(1)
-    # 2. Build CLI args dict (only those not None)
-    cli_args = {
-        k: v
-        for k, v in {
+    else:
+        # Create transformation config from command-line arguments
+        transformation_config = None
+        if enable_bbox_clipping or enable_augmentation or enable_tiling:
+            transformation_config = TransformationConfigCLI(
+                enable_bbox_clipping=enable_bbox_clipping,
+                bbox_clipping=BboxClippingConfigCLI(
+                    tolerance=bbox_clipping_tolerance, skip_invalid=skip_invalid_bbox
+                )
+                if enable_bbox_clipping
+                else None,
+                enable_augmentation=enable_augmentation,
+                augmentation=AugmentationConfigCLI(
+                    probability=augmentation_probability,
+                    num_transforms=num_augmentations,
+                )
+                if enable_augmentation
+                else None,
+                enable_tiling=enable_tiling,
+                tiling=TilingConfigCLI(
+                    tile_size=tile_size,
+                    stride=tile_stride,
+                    min_visibility=min_visibility,
+                )
+                if enable_tiling
+                else None,
+            )
+
+        # Create config from command-line arguments
+        config_data = {
             "source_path": source_path,
-            "format_type": format_type,
+            "source_format": source_format,
             "dataset_name": dataset_name,
+            "root": root,
+            "split_name": split_name,
+            "processing_mode": processing_mode,
             "track_with_dvc": track_with_dvc,
-            "augment": augment,
-            "rotation_range": rotation_range,
-            "probability": probability,
-            "brightness_range": brightness_range,
-            "contrast_range": contrast_range,
-            "noise_std": noise_std,
-            "tile": tile,
-            "tile_size": tile_size,
-            "stride": stride,
-            "min_visibility": min_visibility,
-            "max_negative_tiles": max_negative_tiles,
-            "negative_positive_ratio": negative_positive_ratio,
-            "filter_config": filter_config,
-        }.items()
-        if v is not None
-    }
-    # 3. Merge CLI args over config_dict
-    merged = {**config_dict, **cli_args}
-    # Only keep keys that are valid ImportConfig fields
-    import_fields = set(ImportConfig.model_fields.keys())
-    filtered_merged = {k: v for k, v in merged.items() if k in import_fields}
-
-    # Type enforcement for ImportConfig fields
-    def coerce_tuple(val):
-        if isinstance(val, (list, tuple)) and len(val) == 2:
-            return (float(val[0]), float(val[1]))
-        return val
-
-    def coerce_bool(val):
-        if isinstance(val, bool):
-            return val
-        if isinstance(val, str):
-            return val.lower() in ("true", "1", "yes")
-        if isinstance(val, int):
-            return bool(val)
-        return val
-
-    def coerce_int(val):
+            "bbox_tolerance": bbox_tolerance,
+            "dotenv_path": dotenv_path,
+            "ls_xml_config": ls_xml_config,
+            "ls_parse_config": ls_parse_config,
+            "transformations": transformation_config,
+        }
         try:
-            return int(val)
-        except Exception:
-            return val
+            config = ImportDatasetConfig(**config_data)
+        except ValidationError as e:
+            typer.echo(f"❌ Configuration validation error:")
+            for error in e.errors():
+                typer.echo(f"   {error['loc'][0]}: {error['msg']}")
+            raise typer.Exit(1)
 
-    def coerce_float(val):
-        try:
-            return float(val)
-        except Exception:
-            return val
-
-    def coerce_str(val):
-        return str(val)
-
-    for key in list(filtered_merged.keys()):
-        if key in ("rotation_range", "brightness_range", "contrast_range", "noise_std"):
-            filtered_merged[key] = coerce_tuple(filtered_merged[key])
-        elif key in ("augment", "tile", "track_with_dvc"):
-            filtered_merged[key] = coerce_bool(filtered_merged[key])
-        elif key in ("tile_size", "stride", "max_negative_tiles"):
-            filtered_merged[key] = coerce_int(filtered_merged[key])
-        elif key in ("probability", "min_visibility", "negative_positive_ratio"):
-            filtered_merged[key] = coerce_float(filtered_merged[key])
-        elif key in ("source_path", "format_type", "dataset_name"):
-            filtered_merged[key] = coerce_str(filtered_merged[key])
-    # For filter_config, ensure it's a FilterConfigModel if present
-    if "filter_config" in filtered_merged and isinstance(
-        filtered_merged["filter_config"], dict
-    ):
-        filtered_merged["filter_config"] = FilterConfigModel(
-            **filtered_merged["filter_config"]
+    # Convert ROI config if provided
+    roi_config = None
+    if config.roi_config:
+        roi_config = ROIConfig(
+            random_roi_count=config.roi_config.random_roi_count,
+            roi_box_size=config.roi_config.roi_box_size,
+            min_roi_size=config.roi_config.min_roi_size,
+            dark_threshold=config.roi_config.dark_threshold,
+            background_class=config.roi_config.background_class,
+            save_format=config.roi_config.save_format,
+            quality=config.roi_config.quality,
         )
 
-    # Assign to new variables of the correct type (robust parsing)
-    def parse_tuple(val, default):
-        if isinstance(val, (list, tuple)) and len(val) == 2:
-            return (float(val[0]), float(val[1]))
-        if isinstance(val, str):
-            try:
-                parsed = ast.literal_eval(val)
-                if isinstance(parsed, (list, tuple)) and len(parsed) == 2:
-                    return (float(parsed[0]), float(parsed[1]))
-            except Exception:
-                pass
-        return default
-
-    def parse_float(val, default):
-        try:
-            return float(val)
-        except Exception:
-            return default
-
-    def parse_int(val, default):
-        try:
-            return int(val)
-        except Exception:
-            return default
-
-    def parse_bool(val, default):
-        if isinstance(val, bool):
-            return val
-        if isinstance(val, str):
-            return val.lower() in ("true", "1", "yes")
-        if isinstance(val, int):
-            return bool(val)
-        return default
-
-    source_path = str(filtered_merged.get("source_path", ""))
-    format_type = str(filtered_merged.get("format_type", ""))
-    dataset_name = str(filtered_merged.get("dataset_name", ""))
-    track_with_dvc = parse_bool(filtered_merged.get("track_with_dvc", False), False)
-    augment = parse_bool(filtered_merged.get("augment", False), False)
-    rotation_range = parse_tuple(
-        filtered_merged.get("rotation_range", (-10.0, 10.0)), (-10.0, 10.0)
-    )
-    probability = parse_float(filtered_merged.get("probability", 0.5), 0.5)
-    brightness_range = parse_tuple(
-        filtered_merged.get("brightness_range", (0.9, 1.1)), (0.9, 1.1)
-    )
-    contrast_range = parse_tuple(
-        filtered_merged.get("contrast_range", (0.9, 1.1)), (0.9, 1.1)
-    )
-    noise_std = parse_tuple(filtered_merged.get("noise_std", (0.01, 0.1)), (0.01, 0.1))
-    tile = parse_bool(filtered_merged.get("tile", False), False)
-    tile_size = parse_int(filtered_merged.get("tile_size", 512), 512)
-    stride = parse_int(filtered_merged.get("stride", 256), 256)
-    min_visibility = parse_float(filtered_merged.get("min_visibility", 0.1), 0.1)
-    max_negative_tiles = parse_int(filtered_merged.get("max_negative_tiles", 3), 3)
-    negative_positive_ratio = parse_float(
-        filtered_merged.get("negative_positive_ratio", 1.0), 1.0
-    )
-    filter_config = filtered_merged.get("filter_config", None)
-    if not (
-        isinstance(filter_config, dict)
-        or filter_config is None
-        or hasattr(filter_config, "dict")
-    ):
-        filter_config = None
-    # Final type checks for all fields
-    if not isinstance(source_path, str):
-        source_path = ""
-    if not isinstance(format_type, str):
-        format_type = ""
-    if not isinstance(dataset_name, str):
-        dataset_name = ""
-    if not isinstance(track_with_dvc, bool):
-        track_with_dvc = False
-    if not isinstance(augment, bool):
-        augment = False
-    if not (
-        isinstance(rotation_range, tuple)
-        and len(rotation_range) == 2
-        and all(isinstance(x, float) for x in rotation_range)
-    ):
-        rotation_range = (
-            (float(rotation_range[0]), float(rotation_range[1]))
-            if isinstance(rotation_range, (list, tuple)) and len(rotation_range) == 2
-            else (-10.0, 10.0)
-        )
-    if not isinstance(probability, float):
-        probability = 0.5
-    if not (
-        isinstance(brightness_range, tuple)
-        and len(brightness_range) == 2
-        and all(isinstance(x, float) for x in brightness_range)
-    ):
-        brightness_range = (
-            (float(brightness_range[0]), float(brightness_range[1]))
-            if isinstance(brightness_range, (list, tuple))
-            and len(brightness_range) == 2
-            else (0.9, 1.1)
-        )
-    if not (
-        isinstance(contrast_range, tuple)
-        and len(contrast_range) == 2
-        and all(isinstance(x, float) for x in contrast_range)
-    ):
-        contrast_range = (
-            (float(contrast_range[0]), float(contrast_range[1]))
-            if isinstance(contrast_range, (list, tuple)) and len(contrast_range) == 2
-            else (0.9, 1.1)
-        )
-    if not (
-        isinstance(noise_std, tuple)
-        and len(noise_std) == 2
-        and all(isinstance(x, float) for x in noise_std)
-    ):
-        noise_std = (
-            (float(noise_std[0]), float(noise_std[1]))
-            if isinstance(noise_std, (list, tuple)) and len(noise_std) == 2
-            else (0.01, 0.1)
-        )
-    if not isinstance(tile, bool):
-        tile = False
-    if not isinstance(tile_size, int):
-        tile_size = 512
-    if not isinstance(stride, int):
-        stride = 256
-    if not isinstance(min_visibility, float):
-        min_visibility = 0.1
-    if not isinstance(max_negative_tiles, int):
-        max_negative_tiles = 3
-    if not isinstance(negative_positive_ratio, float):
-        negative_positive_ratio = 1.0
-    # For filter_config, always pass as FilterConfigModel or None
-    if isinstance(filter_config, dict):
-        try:
-            filter_config = FilterConfigModel(**filter_config)
-        except Exception:
-            filter_config = None
-    if not isinstance(filter_config, FilterConfigModel):
-        filter_config = None
-    # 4. Validate and coerce with Pydantic
-    try:
-        import_config = ImportConfig(
-            source_path=source_path,
-            format_type=format_type,
-            dataset_name=dataset_name,
-            track_with_dvc=track_with_dvc,
-            augment=augment,
-            rotation_range=rotation_range,
-            probability=probability,
-            brightness_range=brightness_range,
-            contrast_range=contrast_range,
-            noise_std=noise_std,
-            tile=tile,
-            tile_size=tile_size,
-            stride=stride,
-            min_visibility=min_visibility,
-            max_negative_tiles=max_negative_tiles,
-            negative_positive_ratio=negative_positive_ratio,
-            filter_config=filter_config,
-        )
-    except ValidationError as e:
-        typer.echo(f"❌ Config validation error:\n{e}")
-        raise typer.Exit(1)
-    # 5. Build filter pipeline if filter_config is present
-    filter_pipeline = None
-    if import_config.filter_config is not None:
-        from wildtrain.filters.filter_config import FilterConfig as DCFilterConfig
-        from wildtrain.filters.filter_pipeline import FilterPipeline
-
-        # Convert Pydantic model to dataclass
-        filter_config_dc = DCFilterConfig._from_dict(
-            import_config.filter_config.model_dump()
-        )
-        filter_pipeline = FilterPipeline.from_config(filter_config_dc)
-    # 6. Use import_config in your logic
-    if import_config.format_type.lower() not in ["coco", "yolo"]:
-        typer.echo(
-            f"❌ Error: Format type must be 'coco' or 'yolo', got '{import_config.format_type}'"
-        )
-        raise typer.Exit(1)
-    split_name = "train"
+    # Create transformation pipeline if configured
     transformation_pipeline = None
-    if import_config.augment or import_config.tile:
+    if config.transformations:
+        if verbose:
+            typer.echo(f"🔧 Creating transformation pipeline...")
+
         transformation_pipeline = TransformationPipeline()
-        if import_config.augment:
-            try:
-                aug_config = AugmentationConfig(
-                    rotation_range=import_config.rotation_range,
-                    probability=import_config.probability,
-                    brightness_range=import_config.brightness_range,
-                    contrast_range=import_config.contrast_range,
-                    noise_std=import_config.noise_std,
-                )
-                aug_transformer = AugmentationTransformer(aug_config)
-                transformation_pipeline.add_transformer(aug_transformer)
-                typer.echo(
-                    f"🔧 Added augmentation transformer (probability: {import_config.probability})"
-                )
-            except Exception as e:
-                typer.echo(f"❌ Error setting up augmentation: {e}")
-                raise typer.Exit(1)
-        if import_config.tile:
-            try:
-                tile_config = TilingConfig(
-                    tile_size=import_config.tile_size,
-                    stride=import_config.stride,
-                    min_visibility=import_config.min_visibility,
-                    max_negative_tiles_in_negative_image=import_config.max_negative_tiles,
-                    negative_positive_ratio=import_config.negative_positive_ratio,
-                )
-                tile_transformer = TilingTransformer(tile_config)
-                transformation_pipeline.add_transformer(tile_transformer)
-                typer.echo(
-                    f"🔧 Added tiling transformer (tile size: {import_config.tile_size}, stride: {import_config.stride})"
-                )
-            except Exception as e:
-                typer.echo(f"❌ Error setting up tiling: {e}")
-                raise typer.Exit(1)
-    pipeline = get_pipeline(
-        split_name, transformation_pipeline, filter_pipeline=filter_pipeline
-    )
-    try:
-        typer.echo(
-            f"🚀 Importing {import_config.format_type.upper()} dataset from {import_config.source_path}"
-        )
-        typer.echo(f"📝 Dataset name: {import_config.dataset_name}")
-        if import_config.augment or import_config.tile:
-            typer.echo(
-                f"🔧 Applying transformations: {'augmentation' if import_config.augment else ''}{' + tiling' if import_config.tile else ''}"
+
+        # Add bbox clipping transformer
+        if (
+            config.transformations.enable_bbox_clipping
+            and config.transformations.bbox_clipping
+        ):
+            bbox_config = config.transformations.bbox_clipping
+            bbox_transformer = BoundingBoxClippingTransformer(
+                tolerance=bbox_config.tolerance, skip_invalid=bbox_config.skip_invalid
             )
-        if import_config.track_with_dvc:
-            typer.echo("📦 DVC tracking enabled")
-        if import_config.filter_config is not None:
-            typer.echo("🔍 Filtering enabled via filter_config")
-        typer.echo("─" * 50)
+            transformation_pipeline.add_transformer(bbox_transformer)
+            if verbose:
+                typer.echo(
+                    f"   Added BoundingBoxClippingTransformer (tolerance: {bbox_config.tolerance})"
+                )
+
+        # Add augmentation transformer
+        if (
+            config.transformations.enable_augmentation
+            and config.transformations.augmentation
+        ):
+            aug_config = config.transformations.augmentation
+            aug_transformer = AugmentationTransformer(
+                config=AugmentationConfig(
+                    rotation_range=aug_config.rotation_range,
+                    probability=aug_config.probability,
+                    brightness_range=aug_config.brightness_range,
+                    scale=aug_config.scale,
+                    translate=aug_config.translate,
+                    shear=aug_config.shear,
+                    contrast_range=aug_config.contrast_range,
+                    noise_std=aug_config.noise_std,
+                    seed=aug_config.seed,
+                    num_transforms=aug_config.num_transforms,
+                )
+            )
+            transformation_pipeline.add_transformer(aug_transformer)
+            if verbose:
+                typer.echo(
+                    f"   Added AugmentationTransformer (num_transforms: {aug_config.num_transforms})"
+                )
+
+        # Add tiling transformer
+        if config.transformations.enable_tiling and config.transformations.tiling:
+            tiling_config = config.transformations.tiling
+            tiling_transformer = TilingTransformer(
+                config=TilingConfig(
+                    tile_size=tiling_config.tile_size,
+                    stride=tiling_config.stride,
+                    min_visibility=tiling_config.min_visibility,
+                    max_negative_tiles_in_negative_image=tiling_config.max_negative_tiles_in_negative_image,
+                    negative_positive_ratio=tiling_config.negative_positive_ratio,
+                    dark_threshold=tiling_config.dark_threshold,
+                )
+            )
+            transformation_pipeline.add_transformer(tiling_transformer)
+            if verbose:
+                typer.echo(
+                    f"   Added TilingTransformer (tile_size: {tiling_config.tile_size}, stride: {tiling_config.stride})"
+                )
+
+    # Execute import
+    try:
+        if verbose:
+            typer.echo(f"🔧 Creating data pipeline...")
+            typer.echo(f"   Root: {config.root}")
+            typer.echo(f"   Split: {config.split_name}")
+            typer.echo(f"   DVC enabled: {config.enable_dvc}")
+            if transformation_pipeline:
+                typer.echo(f"   Transformers: {len(transformation_pipeline)}")
+
+        pipeline = DataPipeline(
+            root=config.root,
+            split_name=config.split_name,
+            enable_dvc=config.enable_dvc,
+            transformation_pipeline=transformation_pipeline,
+            filter_pipeline=None,
+        )
+
+        if verbose:
+            typer.echo(f"📥 Importing dataset...")
+            typer.echo(f"   Source: {config.source_path}")
+            typer.echo(f"   Format: {config.source_format}")
+            typer.echo(f"   Name: {config.dataset_name}")
+            typer.echo(f"   Mode: {config.processing_mode}")
+
         result = pipeline.import_dataset(
-            source_path=import_config.source_path,
-            source_format=import_config.format_type.lower(),
-            dataset_name=import_config.dataset_name,
-            track_with_dvc=import_config.track_with_dvc,
+            source_path=config.source_path,
+            source_format=config.source_format,
+            dataset_name=config.dataset_name,
+            processing_mode=config.processing_mode,
+            track_with_dvc=config.track_with_dvc,
+            bbox_tolerance=config.bbox_tolerance,
+            roi_config=roi_config,
+            dotenv_path=config.dotenv_path,
+            ls_xml_config=config.ls_xml_config,
+            ls_parse_config=config.ls_parse_config,
         )
+
         if result["success"]:
-            typer.echo("✅ Import successful!")
-            typer.echo(
-                f"📄 Master annotations: {result.get('dataset_info_path', result.get('master_path', 'N/A'))}"
-            )
-            typer.echo("🔧 Framework formats created:")
-            for framework, path in result["framework_paths"].items():
-                typer.echo(f"  - {framework.upper()}: {path}")
-            if import_config.track_with_dvc and result.get("dvc_tracked"):
-                typer.echo("📦 Dataset tracked with DVC")
+            typer.echo(f"✅ Successfully imported dataset '{config.dataset_name}'")
+            if verbose:
+                typer.echo(f"   Dataset info: {result['dataset_info_path']}")
+                typer.echo(f"   Framework paths: {result['framework_paths']}")
+                typer.echo(f"   Processing mode: {result['processing_mode']}")
+                typer.echo(f"   DVC tracked: {result['dvc_tracked']}")
         else:
-            typer.echo("❌ Import failed!")
-            typer.echo(f"💥 Error: {result.get('error', 'Unknown error')}")
-            if "validation_errors" in result:
-                typer.echo("\n🔍 Validation errors:")
+            typer.echo(f"❌ Failed to import dataset: {result['error']}")
+            if "validation_errors" in result and result["validation_errors"]:
+                typer.echo("   Validation errors:")
                 for error in result["validation_errors"]:
-                    typer.echo(f"  - {error}")
-            if "hints" in result:
-                typer.echo("\n💡 Hints:")
+                    typer.echo(f"     - {error}")
+            if "hints" in result and result["hints"]:
+                typer.echo("   Hints:")
                 for hint in result["hints"]:
-                    typer.echo(f"  - {hint}")
+                    typer.echo(f"     - {hint}")
             raise typer.Exit(1)
+
+    except ValidationError as e:
+        typer.echo(f"❌ Configuration validation error:")
+        for error in e.errors():
+            typer.echo(f"   {error['loc'][0]}: {error['msg']}")
+        raise typer.Exit(1)
     except Exception as e:
-        typer.echo(f"❌ Error: {e}")
+        typer.echo(f"❌ Import failed: {str(e)}")
+        if verbose:
+            typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
 
 
-@dataset_app.command("list")
-def list_datasets():
-    pipeline = get_pipeline("train")
+@app.command()
+def list_datasets(
+    root: str = typer.Option(
+        "data", "--root", "-r", help="Root directory for data storage"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+):
+    """List all available datasets."""
     try:
+        pipeline = DataPipeline(root=root, split_name="train")
         datasets = pipeline.list_datasets()
+
         if not datasets:
-            typer.echo("📭 No datasets found in master storage.")
+            typer.echo("📭 No datasets found")
             return
-        typer.echo(f"📋 Found {len(datasets)} dataset(s):")
-        typer.echo("─" * 50)
+
+        typer.echo(f"📚 Found {len(datasets)} dataset(s):")
         for dataset in datasets:
-            typer.echo(f"📁 Dataset: {dataset['dataset_name']}")
-            typer.echo(f"  📊 Total images: {dataset['total_images']}")
-            typer.echo(f"  🏷️  Total annotations: {dataset['total_annotations']}")
-            typer.echo(f"  📂 Images by split: {dataset['images_by_split']}")
-            typer.echo(f"  🎯 Annotations by type: {dataset['annotations_by_type']}")
-            typer.echo()
+            typer.echo(f"   • {dataset['name']}")
+            if verbose:
+                typer.echo(f"     Created: {dataset.get('created_at', 'Unknown')}")
+                typer.echo(f"     Size: {dataset.get('size', 'Unknown')}")
+                typer.echo(f"     Format: {dataset.get('format', 'Unknown')}")
+
     except Exception as e:
-        typer.echo(f"❌ Error: {e}")
+        typer.echo(f"❌ Failed to list datasets: {str(e)}")
         raise typer.Exit(1)
 
 
-@dataset_app.command()
-def info(dataset_name: str = typer.Argument(..., help="Name of the dataset")):
-    pipeline = get_pipeline("train")
-    try:
-        info = pipeline.get_dataset_info(dataset_name)
-        typer.echo(f"📁 Dataset: {info['dataset_name']}")
-        typer.echo("─" * 50)
-        typer.echo(f"📄 Master annotations: {info['master_annotations_file']}")
-        typer.echo(f"📊 Total images: {info['total_images']}")
-        typer.echo(f"🏷️  Total annotations: {info['total_annotations']}")
-        typer.echo(f"📂 Images by split: {info['images_by_split']}")
-        typer.echo(f"🎯 Annotations by type: {info['annotations_by_type']}")
-        typer.echo(f"🏷️  Categories: {len(info['categories'])}")
-        # Check for framework formats
-        framework_formats = []
-        coco_dir = state.data_dir / "framework_formats" / "coco" / dataset_name
-        yolo_dir = state.data_dir / "framework_formats" / "yolo" / dataset_name
-        if coco_dir.exists():
-            framework_formats.append({"framework": "coco", "path": str(coco_dir)})
-        if yolo_dir.exists():
-            framework_formats.append({"framework": "yolo", "path": str(yolo_dir)})
-        if framework_formats:
-            typer.echo("\n🔧 Available framework formats:")
-            for fmt in framework_formats:
-                typer.echo(f"  - {fmt['framework'].upper()}: {fmt['path']}")
-        else:
-            typer.echo("\n⚠️  No framework formats created yet.")
-    except FileNotFoundError:
-        typer.echo(f"❌ Dataset '{dataset_name}' not found.")
-        raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"❌ Error: {e}")
-        raise typer.Exit(1)
-
-
-@dataset_app.command()
-def export(
-    dataset_name: str = typer.Argument(..., help="Name of the dataset"),
-    framework: str = typer.Argument(
-        ..., help="Target framework format", case_sensitive=False
+@app.command()
+def export_dataset(
+    dataset_name: str = typer.Argument(..., help="Name of the dataset to export"),
+    target_format: str = typer.Option(
+        ..., "--format", "-f", help="Target format (coco/yolo)"
     ),
-):
-    if framework.lower() not in ["coco", "yolo"]:
-        typer.echo(f"❌ Error: Framework must be 'coco' or 'yolo', got '{framework}'")
-        raise typer.Exit(1)
-    pipeline = get_pipeline("train")
-    try:
-        result = pipeline.export_framework_format(dataset_name, framework.lower())
-        typer.echo(
-            f"✅ Exported dataset '{dataset_name}' to {framework.upper()} format"
-        )
-        typer.echo(f"📁 Output path: {result['output_path']}")
-        if framework.lower() == "coco":
-            typer.echo(f"📂 Data directory: {result.get('data_dir', 'N/A')}")
-            typer.echo(f"📄 Annotations file: {result.get('annotations_file', 'N/A')}")
-        elif framework.lower() == "yolo":
-            typer.echo(f"🖼️  Images directory: {result.get('images_dir', 'N/A')}")
-            typer.echo(f"🏷️  Labels directory: {result.get('labels_dir', 'N/A')}")
-            typer.echo(f"⚙️  Data YAML: {result.get('data_yaml', 'N/A')}")
-    except FileNotFoundError:
-        typer.echo(f"❌ Dataset '{dataset_name}' not found.")
-        raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"❌ Export failed: {e}")
-        raise typer.Exit(1)
-
-
-@dataset_app.command()
-def delete(
-    dataset_name: str = typer.Argument(..., help="Name of the dataset to delete"),
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Force deletion without confirmation"
+    target_path: str = typer.Option(..., "--output", "-o", help="Output path"),
+    root: str = typer.Option(
+        "data", "--root", "-r", help="Root directory for data storage"
     ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """Delete a dataset from master storage."""
+    """Export a dataset to a specific format."""
     try:
-        if not force:
-            confirm = typer.confirm(
-                f"Are you sure you want to delete dataset '{dataset_name}'?"
+        pipeline = DataPipeline(root=root, split_name="train")
+
+        if verbose:
+            typer.echo(
+                f"📤 Exporting dataset '{dataset_name}' to {target_format} format..."
             )
-            if not confirm:
-                typer.echo("🗑️  Deletion cancelled.")
-                return
-        # Delete dataset directory
-        dataset_dir = state.data_dir / dataset_name
-        if dataset_dir.exists():
-            import shutil
 
-            shutil.rmtree(dataset_dir)
-            typer.echo(f"✅ Dataset '{dataset_name}' deleted successfully.")
-        else:
-            typer.echo(f"❌ Dataset '{dataset_name}' not found.")
-            raise typer.Exit(1)
-    except FileNotFoundError:
-        typer.echo(f"❌ Dataset '{dataset_name}' not found.")
-        raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"❌ Error: {e}")
-        raise typer.Exit(1)
-
-
-# Add the dataset group to the main app
-app.add_typer(dataset_app, name="dataset")
-
-
-@app.command()
-def validate(
-    source_path: str = typer.Argument(..., help="Path to the source dataset"),
-    format_type: str = typer.Argument(
-        ..., help="Format type to validate", case_sensitive=False
-    ),
-):
-    if format_type.lower() not in ["coco", "yolo"]:
-        typer.echo(
-            f"❌ Error: Format type must be 'coco' or 'yolo', got '{format_type}'"
-        )
-        raise typer.Exit(1)
-    try:
-        typer.echo(f"🔍 Validating {format_type.upper()} dataset at {source_path}")
-        typer.echo("─" * 50)
-        # Validate dataset
-        if format_type.lower() == "coco":
-            from wildtrain.validators.coco_validator import COCOValidator
-
-            validator = COCOValidator(source_path)
-            is_valid, errors, warnings = validator.validate()
-        else:
-            from wildtrain.validators.yolo_validator import YOLOValidator
-
-            validator = YOLOValidator(source_path)
-            is_valid, errors, warnings = validator.validate()
-        if is_valid:
-            typer.echo("✅ Validation passed!")
-            typer.echo("🎉 Dataset is ready for import.")
-        else:
-            typer.echo("❌ Validation failed!")
-            typer.echo("\n🔍 Validation errors:")
-            for error in errors:
-                typer.echo(f"  - {error}")
-            if warnings:
-                typer.echo("\n💡 Hints:")
-                for hint in warnings:
-                    typer.echo(f"  - {hint}")
-            raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"❌ Error: {e}")
-        raise typer.Exit(1)
-
-
-@app.command()
-def status():
-    try:
-        typer.echo("📊 WildTrain Pipeline Status")
-        typer.echo("─" * 50)
-        data_dir = state.data_dir
-        if data_dir.exists():
-            typer.echo(f"📁 Data directory: {data_dir} ✅")
-        else:
-            typer.echo(f"📁 Data directory: {data_dir} ❌ (not found)")
-        framework_dir = data_dir / "framework_formats"
-        if framework_dir.exists():
-            typer.echo(f"🔧 Framework formats: {framework_dir} ✅")
-        else:
-            typer.echo(f"🔧 Framework formats: {framework_dir} ❌ (not found)")
-        pipeline = get_pipeline("train")
-        datasets = pipeline.list_datasets()
-        typer.echo(f"📋 Datasets: {len(datasets)} found")
-        if datasets:
-            typer.echo("\n📁 Available datasets:")
-            for dataset in datasets:
-                typer.echo(
-                    f"  - {dataset['dataset_name']}: {dataset['total_images']} images"
-                )
-        typer.echo("\n✨ Pipeline is ready!")
-    except Exception as e:
-        typer.echo(f"❌ Error: {e}")
-        raise typer.Exit(1)
-
-
-# DVC command group
-dvc_app = typer.Typer(help="DVC data versioning commands.")
-
-
-@dvc_app.command("setup")
-def setup_dvc(
-    storage_type: str = typer.Option(
-        "local", "--storage-type", help="Storage type (local, s3, gcs, azure)"
-    ),
-    storage_path: str = typer.Option(
-        None, "--storage-path", help="Path to remote storage"
-    ),
-    remote_name: str = typer.Option(
-        "origin", "--remote-name", help="Name for the remote"
-    ),
-    force: bool = typer.Option(False, "--force", help="Force reconfiguration"),
-):
-    """Setup DVC remote storage."""
-    try:
-        # Map storage type
-        storage_type_enum = DVCStorageType.S3
-        if storage_type.lower() != "s3":
-            typer.echo(f"❌ Error: Unsupported storage type: {storage_type}")
-            raise typer.Exit(1)
-
-        # Create DVC configuration
-        config = DVCConfig(
-            storage_type=storage_type_enum,
-            storage_path=storage_path,
-            remote_name=remote_name,
-        )
-
-        # Initialize DVC manager
-        dvc_manager = DVCManager(state.data_dir, config)
-
-        # Setup remote storage
-        if dvc_manager.setup_remote_storage(force):
-            typer.echo(f"✅ DVC remote storage setup successful!")
-            typer.echo(f"📦 Storage type: {storage_type}")
-            typer.echo(f"📁 Storage path: {storage_path}")
-            typer.echo(f"🔗 Remote name: {remote_name}")
-        else:
-            typer.echo("❌ Failed to setup DVC remote storage")
-            raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"❌ Error setting up DVC: {e}")
-        raise typer.Exit(1)
-
-
-@dvc_app.command("status")
-def dvc_status():
-    """Show DVC status information."""
-    try:
-        dvc_manager = DVCManager(state.data_dir)
-        status = dvc_manager.get_status()
-
-        typer.echo("📊 DVC Status")
-        typer.echo("─" * 50)
-        typer.echo(
-            f"🔧 DVC Initialized: {'✅' if status.get('dvc_initialized', False) else '❌'}"
-        )
-        typer.echo(
-            f"📦 Remote Configured: {'✅' if status.get('remote_configured', False) else '❌'}"
-        )
-        typer.echo(
-            f"📁 Data Tracked: {'✅' if status.get('data_tracked', False) else '❌'}"
-        )
-
-        if status.get("status_output"):
-            typer.echo("\n📋 Status Details:")
-            typer.echo(status["status_output"])
-
-    except Exception as e:
-        typer.echo(f"❌ Error getting DVC status: {e}")
-        raise typer.Exit(1)
-
-
-@dvc_app.command("pull")
-def pull_data(
-    dataset_name: Optional[str] = typer.Argument(
-        None, help="Specific dataset to pull (all if not specified)"
-    ),
-):
-    """Pull data from DVC remote storage."""
-    try:
-        dvc_manager = DVCManager(state.data_dir)
-
-        if dataset_name:
-            typer.echo(f"📥 Pulling dataset '{dataset_name}' from remote storage...")
-            success = dvc_manager.pull_data(dataset_name)
-        else:
-            typer.echo("📥 Pulling all data from remote storage...")
-            success = dvc_manager.pull_data()
+        success = pipeline.export_dataset(dataset_name, target_format, target_path)
 
         if success:
-            typer.echo("✅ Data pull successful!")
+            typer.echo(
+                f"✅ Successfully exported dataset '{dataset_name}' to {target_path}"
+            )
         else:
-            typer.echo("❌ Failed to pull data from remote storage")
+            typer.echo(f"❌ Failed to export dataset '{dataset_name}'")
             raise typer.Exit(1)
 
     except Exception as e:
-        typer.echo(f"❌ Error pulling data: {e}")
+        typer.echo(f"❌ Export failed: {str(e)}")
+        if verbose:
+            typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
 
 
-@dvc_app.command("push")
-def push_data():
-    """Push data to DVC remote storage."""
-    try:
-        dvc_manager = DVCManager(state.data_dir)
-
-        typer.echo("📤 Pushing data to remote storage...")
-        returncode, stdout, stderr = dvc_manager._run_dvc_command(["push"])
-
-        if returncode == 0:
-            typer.echo("✅ Data push successful!")
-        else:
-            typer.echo(f"❌ Failed to push data: {stderr}")
-            raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"❌ Error pushing data: {e}")
-        raise typer.Exit(1)
+@app.command()
+def version():
+    """Show version information."""
+    typer.echo(f"wildata version {__version__}")
 
 
-@dvc_app.command("pipeline")
-def create_pipeline(
-    pipeline_name: str = typer.Argument(..., help="Name of the pipeline"),
-    stages_file: str = typer.Option(
-        None, "--stages-file", help="Path to stages configuration file"
-    ),
-):
-    """Create a DVC pipeline for data processing."""
-    try:
-        dvc_manager = DVCManager(state.data_dir)
-
-        if stages_file:
-            # Load stages from file
-            with open(stages_file, "r", encoding="utf-8") as f:
-                stages = yaml.safe_load(f)
-            if stages is None:
-                stages = []
-        else:
-            # Create default pipeline stages
-            stages = [
-                {
-                    "name": "import",
-                    "command": "wildtrain dataset import",
-                    "deps": ["data/raw"],
-                    "outs": ["data/processed"],
-                },
-                {
-                    "name": "transform",
-                    "command": "wildtrain dataset transform",
-                    "deps": ["data/processed"],
-                    "outs": ["data/transformed"],
-                },
-            ]
-
-        if dvc_manager.create_pipeline(pipeline_name, stages):
-            typer.echo(f"✅ Created DVC pipeline: {pipeline_name}")
-            typer.echo("📋 Pipeline stages:")
-            if stages:
-                for stage in stages:
-                    if (
-                        isinstance(stage, dict)
-                        and "name" in stage
-                        and "command" in stage
-                    ):
-                        typer.echo(f"  - {stage['name']}: {stage['command']}")
-        else:
-            typer.echo("❌ Failed to create DVC pipeline")
-            raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"❌ Error creating pipeline: {e}")
-        raise typer.Exit(1)
-
-
-@dvc_app.command("run")
-def run_pipeline(
-    pipeline_name: str = typer.Argument(..., help="Name of the pipeline to run"),
-):
-    """Run a DVC pipeline."""
-    try:
-        dvc_manager = DVCManager(state.data_dir)
-
-        typer.echo(f"🚀 Running DVC pipeline: {pipeline_name}")
-        if dvc_manager.run_pipeline(pipeline_name):
-            typer.echo("✅ Pipeline execution successful!")
-        else:
-            typer.echo("❌ Pipeline execution failed")
-            raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"❌ Error running pipeline: {e}")
-        raise typer.Exit(1)
-
-
-# Add the DVC group to the main app
-app.add_typer(dvc_app, name="dvc")
+if __name__ == "__main__":
+    app()
