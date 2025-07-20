@@ -3,7 +3,7 @@ name = "wildata"
 version = "0.1.0"
 description = "WildTrain Data Pipeline"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
     "pycocotools>=2.0.10",
     "pytest>=7.0.0",
@@ -18,17 +18,18 @@ dependencies = [
     "pre-commit>=4.2.0",
     "spyder-kernels==3.0.*",
     "dvc-s3>=3.2.2",
-    "transformers>=4.53.2",
-    "accelerate>=1.8.1",
-    "scikit-learn>=1.7.0",
+    "transformers",
+    "accelerate",
+    "scikit-learn",
     "pandas>=2.3.1",
-    "torchmetrics>=1.7.4",
+    "torchmetrics",
     "pip>=25.1.1",
     "label-studio-sdk>=1.0.18",
-    "torch==2.6",
-    "torchvision>=0.21.0",
+    "torch",
+    "torchvision",
     "geopy>=2.4.1",
     "label-studio-converter>=0.0.59",
+    "pydantic",
 ]
 
 [project.scripts]
