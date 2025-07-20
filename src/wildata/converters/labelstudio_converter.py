@@ -5,7 +5,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 from dotenv import load_dotenv
 from label_studio_converter import Converter
@@ -133,7 +133,7 @@ class LabelstudioConverter(BaseConverter):
 
     def get_ls_parsed_config(
         self, ls_json_path: str, ls_client=None, dotenv_path: Optional[str] = None
-    ) -> Dict[str, Any] | None:
+    ) -> Union[Dict[str, Any], None]:
         """
         Get parsed configuration from Label Studio project.
 

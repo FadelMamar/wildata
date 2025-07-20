@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def extract_roi_from_image_bbox(
     image_path, bbox, roi_box_size=128, min_roi_size=32
-) -> Image.Image | None:
+) -> Optional[Image.Image]:
     """
     Utility to extract a ROI from an image given a bbox, with padding and resizing.
     Args:
@@ -198,8 +198,8 @@ class ROIAdapter(BaseAdapter):
     def save(
         self,
         roi_data: Dict[str, Any],
-        output_labels_dir: str | Path,
-        output_images_dir: str | Path,
+        output_labels_dir: Union[str, Path],
+        output_images_dir: Union[str, Path],
     ) -> None:
         """
         Save the ROI-formatted data to the output directory.
@@ -480,7 +480,7 @@ class ROIAdapter(BaseAdapter):
         ) > self.dark_threshold
 
     def crop_image(
-        self, image_path: str | Path, bbox: Tuple[float, float, float, float]
+        self, image_path: Union[str, Path], bbox: Tuple[float, float, float, float]
     ) -> np.ndarray:
         with Image.open(image_path) as img:
             cropped_img = img.crop(bbox)
@@ -488,7 +488,7 @@ class ROIAdapter(BaseAdapter):
         return cropped_img
 
     def _save_roi_images(
-        self, roi_images: List[Dict], output_dir: Path | str
+        self, roi_images: List[Dict], output_dir: Union[Path, str]
     ) -> List[str]:
         """Save ROI images to disk."""
 

@@ -2,7 +2,7 @@ import json
 import os
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 from torch.utils.data import ConcatDataset, Dataset
@@ -81,7 +81,7 @@ def load_all_roi_datasets(
     split: str,
     transform: Optional[dict[str, Callable]] = None,
     concat: bool = False,
-) -> dict[str, ROIDataset] | ConcatDataset:
+) -> Union[dict[str, ROIDataset], ConcatDataset]:
     """
     Load all available ROI datasets for a given split.
     Returns a dict mapping dataset_name to ROIDataset.
