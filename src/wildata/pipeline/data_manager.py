@@ -280,7 +280,7 @@ class DataManager:
             if len(annotation) > 0:
                 for ann in annotation:
                     ann["image_id"] = new_id
-                    ann["id"] = str(uuid4())
+                    ann["id"] = str(new_id) + "_" + str(uuid4())
                 new_annotations.extend(annotation)
 
         cleaned_coco_json["images"] = new_images
