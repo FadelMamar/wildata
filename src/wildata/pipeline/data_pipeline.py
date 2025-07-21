@@ -107,8 +107,8 @@ class DataPipeline:
         Returns:
             Dictionary with import result information
         """
-        print(
-            f"[DEBUG] Starting import_dataset_with_options: {source_path}, {source_format}, {dataset_name}, mode={processing_mode}"
+        self.logger.debug(
+            f"Starting import_dataset_with_options: {source_path}, {source_format}, {dataset_name}, mode={processing_mode}"
         )
 
         assert processing_mode in [
@@ -157,7 +157,7 @@ class DataPipeline:
                 )
 
             # Store dataset using data manager with transformation options
-            print("[DEBUG] Storing dataset with data manager")
+            self.logger.debug("Storing dataset with data manager")
             dataset_info_path = self.data_manager.store_dataset(
                 dataset_name=dataset_name,
                 dataset_info=dataset_info,
@@ -168,7 +168,7 @@ class DataPipeline:
             )
 
             # Create framework formats
-            print("[DEBUG] Creating framework formats")
+            self.logger.debug("Creating framework formats")
             framework_paths = self.framework_data_manager.create_framework_formats(
                 dataset_name
             )
@@ -188,8 +188,8 @@ class DataPipeline:
 
         except Exception as e:
             self.logger.error(f"Error importing dataset: {str(e)}")
-            print(
-                f"[DEBUG] Exception in import_dataset_with_options: {traceback.format_exc()}"
+            self.logger.error(
+                f"Exception in import_dataset_with_options: {traceback.format_exc()}"
             )
             return {
                 "success": False,
