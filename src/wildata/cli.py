@@ -29,6 +29,9 @@ from .filters.filter_config import (
     FilterConfig as FilterConfigModel,
 )
 from .logging_config import setup_logging
+
+setup_logging()
+
 from .pipeline.data_pipeline import DataPipeline
 from .pipeline.dvc_manager import DVCConfig, DVCManager, DVCStorageType
 from .transformations import (

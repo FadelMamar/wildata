@@ -10,7 +10,7 @@ from typing import Optional
 def setup_logging(level="INFO", log_file: Optional[str] = None):
     """Setup logging configuration."""
     level = getattr(logging, level.upper(), logging.INFO)
-    handlers = [
+    handlers: list = [
         logging.StreamHandler(sys.stdout),
     ]
     if isinstance(log_file, str):
@@ -21,6 +21,7 @@ def setup_logging(level="INFO", log_file: Optional[str] = None):
         level=level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
+        force=True,  # Ensure our config is always applied
     )
 
 
