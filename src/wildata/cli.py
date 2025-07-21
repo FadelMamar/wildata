@@ -33,6 +33,7 @@ from .pipeline.data_pipeline import DataPipeline
 from .pipeline.dvc_manager import DVCConfig, DVCManager, DVCStorageType
 from .transformations import (
     AugmentationTransformer,
+    BoundingBoxClippingTransformer,
     TilingTransformer,
     TransformationPipeline,
 )
@@ -51,23 +52,49 @@ class ROIConfigCLI(BaseModel):
     save_format: str = Field(default="jpg", description="Save format")
     quality: int = Field(default=95, description="Image quality")
 
-    @field_validator("random_roi_count", "roi_box_size", "min_roi_size", "quality")
+    @field_validator("random_roi_count", mode="before")
     @classmethod
-    def validate_positive_integers(cls, v):
+    def validate_random_roi_count(cls, v: Any) -> int:
+        v = int(v)
         if v <= 0:
             raise ValueError("Value must be positive")
         return v
 
-    @field_validator("dark_threshold")
+    @field_validator("roi_box_size", mode="before")
     @classmethod
-    def validate_dark_threshold(cls, v):
+    def validate_roi_box_size(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("min_roi_size", mode="before")
+    @classmethod
+    def validate_min_roi_size(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("quality", mode="before")
+    @classmethod
+    def validate_quality(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("dark_threshold", mode="before")
+    @classmethod
+    def validate_dark_threshold(cls, v: Any) -> float:
+        v = float(v)
         if not 0 <= v <= 1:
             raise ValueError("dark_threshold must be between 0 and 1")
         return v
 
-    @field_validator("save_format")
+    @field_validator("save_format", mode="before")
     @classmethod
-    def validate_save_format(cls, v):
+    def validate_save_format(cls, v: Any) -> str:
         if v not in ["jpg", "jpeg", "png"]:
             raise ValueError("save_format must be one of: jpg, jpeg, png")
         return v
@@ -87,23 +114,50 @@ class TilingConfigCLI(BaseModel):
     )
     dark_threshold: float = Field(default=0.5, description="Dark threshold")
 
-    @field_validator("tile_size", "stride", "max_negative_tiles_in_negative_image")
+    @field_validator("tile_size", mode="before")
     @classmethod
-    def validate_positive_integers(cls, v):
+    def validate_tile_size(cls, v: Any) -> int:
+        v = int(v)
         if v <= 0:
             raise ValueError("Value must be positive")
         return v
 
-    @field_validator("min_visibility", "dark_threshold")
+    @field_validator("stride", mode="before")
     @classmethod
-    def validate_visibility_threshold(cls, v):
+    def validate_stride(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("max_negative_tiles_in_negative_image", mode="before")
+    @classmethod
+    def validate_max_negative_tiles_in_negative_image(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("min_visibility", mode="before")
+    @classmethod
+    def validate_min_visibility(cls, v: Any) -> float:
+        v = float(v)
         if not 0 <= v <= 1:
             raise ValueError("Value must be between 0 and 1")
         return v
 
-    @field_validator("negative_positive_ratio")
+    @field_validator("dark_threshold", mode="before")
     @classmethod
-    def validate_ratio(cls, v):
+    def validate_dark_threshold(cls, v: Any) -> float:
+        v = float(v)
+        if not 0 <= v <= 1:
+            raise ValueError("Value must be between 0 and 1")
+        return v
+
+    @field_validator("negative_positive_ratio", mode="before")
+    @classmethod
+    def validate_negative_positive_ratio(cls, v: Any) -> float:
+        v = float(v)
         if v < 0:
             raise ValueError("Ratio must be non-negative")
         return v
@@ -135,16 +189,26 @@ class AugmentationConfigCLI(BaseModel):
     seed: int = Field(default=41, description="Random seed")
     num_transforms: int = Field(default=2, description="Number of transformations")
 
-    @field_validator("probability")
+    @field_validator("probability", mode="before")
     @classmethod
-    def validate_probability(cls, v):
+    def validate_probability(cls, v: Any) -> float:
+        v = float(v)
         if not 0 <= v <= 1:
             raise ValueError("Probability must be between 0 and 1")
         return v
 
-    @field_validator("num_transforms", "seed")
+    @field_validator("num_transforms", mode="before")
     @classmethod
-    def validate_positive_integers(cls, v):
+    def validate_num_transforms(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("seed", mode="before")
+    @classmethod
+    def validate_seed(cls, v: Any) -> int:
+        v = int(v)
         if v <= 0:
             raise ValueError("Value must be positive")
         return v
@@ -156,9 +220,10 @@ class BboxClippingConfigCLI(BaseModel):
     tolerance: int = Field(default=5, description="Tolerance for clipping")
     skip_invalid: bool = Field(default=False, description="Skip invalid annotations")
 
-    @field_validator("tolerance")
+    @field_validator("tolerance", mode="before")
     @classmethod
-    def validate_tolerance(cls, v):
+    def validate_tolerance(cls, v: Any) -> int:
+        v = int(v)
         if v < 0:
             raise ValueError("Tolerance must be non-negative")
         return v
@@ -192,7 +257,7 @@ class ImportDatasetConfig(BaseModel):
     # Pipeline configuration
     root: str = Field(default="data", description="Root directory for data storage")
     split_name: str = Field(default="train", description="Split name (train/val/test)")
-    enable_dvc: bool = Field(default=True, description="Enable DVC integration")
+    enable_dvc: bool = Field(default=False, description="Enable DVC integration")
 
     # Processing options
     processing_mode: str = Field(
@@ -221,44 +286,44 @@ class ImportDatasetConfig(BaseModel):
     )
 
     # Validation methods
-    @field_validator("source_format")
+    @field_validator("source_format", mode="before")
     @classmethod
-    def validate_source_format(cls, v):
-        if v not in ["coco", "yolo"]:
+    def validate_source_format(cls, v: Any) -> str:
+        if v not in ["coco", "yolo", "ls"]:
             raise ValueError('source_format must be either "coco" or "yolo"')
         return v
 
-    @field_validator("split_name")
+    @field_validator("split_name", mode="before")
     @classmethod
-    def validate_split_name(cls, v):
+    def validate_split_name(cls, v: Any) -> str:
         if v not in ["train", "val", "test"]:
             raise ValueError("split_name must be one of: train, val, test")
         return v
 
-    @field_validator("processing_mode")
+    @field_validator("processing_mode", mode="before")
     @classmethod
-    def validate_processing_mode(cls, v):
+    def validate_processing_mode(cls, v: Any) -> str:
         if v not in ["streaming", "batch"]:
             raise ValueError('processing_mode must be either "streaming" or "batch"')
         return v
 
-    @field_validator("source_path")
+    @field_validator("source_path", mode="before")
     @classmethod
-    def validate_source_path(cls, v):
+    def validate_source_path(cls, v: Any) -> str:
         if not Path(v).exists():
             raise ValueError(f"Source path does not exist: {v}")
         return v
 
-    @field_validator("dotenv_path")
+    @field_validator("dotenv_path", mode="before")
     @classmethod
-    def validate_dotenv_path(cls, v):
+    def validate_dotenv_path(cls, v: Any) -> str:
         if v is not None and not Path(v).exists():
             raise ValueError(f"Dotenv path does not exist: {v}")
         return v
 
-    @field_validator("ls_xml_config")
+    @field_validator("ls_xml_config", mode="before")
     @classmethod
-    def validate_ls_xml_config(cls, v):
+    def validate_ls_xml_config(cls, v: Any) -> str:
         if v is not None and not Path(v).exists():
             raise ValueError(f"Label Studio XML config path does not exist: {v}")
         return v
@@ -308,25 +373,30 @@ app = typer.Typer(
 
 @app.command()
 def import_dataset(
-    source_path: str = typer.Argument(..., help="Path to source dataset"),
-    source_format: str = typer.Option(
-        ..., "--format", "-f", help="Source format (coco/yolo)"
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to YAML config file"
     ),
-    dataset_name: str = typer.Option(..., "--name", "-n", help="Dataset name"),
-    root: str = typer.Option(
-        "data", "--root", "-r", help="Root directory for data storage"
+    source_path: Optional[str] = typer.Argument(None, help="Path to source dataset"),
+    source_format: Optional[str] = typer.Option(
+        None, "--format", "-f", help="Source format (coco/yolo/ls)"
     ),
-    split_name: str = typer.Option(
-        "train", "--split", "-s", help="Split name (train/val/test)"
+    dataset_name: Optional[str] = typer.Option(
+        None, "--name", "-n", help="Dataset name"
     ),
-    processing_mode: str = typer.Option(
-        "batch", "--mode", "-m", help="Processing mode (streaming/batch)"
+    root: Optional[str] = typer.Option(
+        None, "--root", "-r", help="Root directory for data storage"
     ),
-    track_with_dvc: bool = typer.Option(
-        False, "--track-dvc", help="Track dataset with DVC"
+    split_name: Optional[str] = typer.Option(
+        None, "--split", "-s", help="Split name (train/val/test)"
     ),
-    bbox_tolerance: int = typer.Option(
-        5, "--bbox-tolerance", help="Bbox validation tolerance"
+    processing_mode: Optional[str] = typer.Option(
+        None, "--mode", "-m", help="Processing mode (streaming/batch)"
+    ),
+    track_with_dvc: Optional[bool] = typer.Option(
+        None, "--track-dvc", help="Track dataset with DVC"
+    ),
+    bbox_tolerance: Optional[int] = typer.Option(
+        None, "--bbox-tolerance", help="Bbox validation tolerance"
     ),
     dotenv_path: Optional[str] = typer.Option(
         None, "--dotenv", help="Path to .env file"
@@ -334,91 +404,125 @@ def import_dataset(
     ls_xml_config: Optional[str] = typer.Option(
         None, "--ls-config", help="Label Studio XML config path"
     ),
-    ls_parse_config: bool = typer.Option(
-        False, "--parse-ls-config", help="Parse Label Studio config"
+    ls_parse_config: Optional[bool] = typer.Option(
+        None, "--parse-ls-config", help="Parse Label Studio config"
     ),
     # Transformation pipeline options
-    enable_bbox_clipping: bool = typer.Option(
-        True, "--enable-bbox-clipping", help="Enable bbox clipping"
+    enable_bbox_clipping: Optional[bool] = typer.Option(
+        None, "--enable-bbox-clipping", help="Enable bbox clipping"
     ),
-    bbox_clipping_tolerance: int = typer.Option(
-        5, "--bbox-clipping-tolerance", help="Bbox clipping tolerance"
+    bbox_clipping_tolerance: Optional[int] = typer.Option(
+        None, "--bbox-clipping-tolerance", help="Bbox clipping tolerance"
     ),
-    skip_invalid_bbox: bool = typer.Option(
-        False, "--skip-invalid-bbox", help="Skip invalid bboxes"
+    skip_invalid_bbox: Optional[bool] = typer.Option(
+        None, "--skip-invalid-bbox", help="Skip invalid bboxes"
     ),
-    enable_augmentation: bool = typer.Option(
-        False, "--enable-augmentation", help="Enable data augmentation"
+    enable_augmentation: Optional[bool] = typer.Option(
+        None, "--enable-augmentation", help="Enable data augmentation"
     ),
-    augmentation_probability: float = typer.Option(
-        1.0, "--aug-prob", help="Augmentation probability"
+    augmentation_probability: Optional[float] = typer.Option(
+        None, "--aug-prob", help="Augmentation probability"
     ),
-    num_augmentations: int = typer.Option(
-        2, "--num-augs", help="Number of augmentations per image"
+    num_augmentations: Optional[int] = typer.Option(
+        None, "--num-augs", help="Number of augmentations per image"
     ),
-    enable_tiling: bool = typer.Option(
-        False, "--enable-tiling", help="Enable image tiling"
+    enable_tiling: Optional[bool] = typer.Option(
+        None, "--enable-tiling", help="Enable image tiling"
     ),
-    tile_size: int = typer.Option(512, "--tile-size", help="Tile size"),
-    tile_stride: int = typer.Option(416, "--tile-stride", help="Tile stride"),
-    min_visibility: float = typer.Option(
-        0.1, "--min-visibility", help="Minimum visibility ratio"
+    tile_size: Optional[int] = typer.Option(None, "--tile-size", help="Tile size"),
+    tile_stride: Optional[int] = typer.Option(
+        None, "--tile-stride", help="Tile stride"
     ),
-    config_file: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to YAML config file"
+    min_visibility: Optional[float] = typer.Option(
+        None, "--min-visibility", help="Minimum visibility ratio"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Import a dataset from various formats into the WildData pipeline."""
 
-    # Load config from file if provided
+    # Enforce mutual exclusivity
     if config_file:
+        # If config is given, do not allow any other required args
+        if any([source_path, source_format, dataset_name]):
+            typer.echo(
+                "❌ If --config is provided, do not provide other arguments.", err=True
+            )
+            raise typer.Exit(1)
         try:
             config = ImportDatasetConfig.from_yaml(config_file)
         except Exception as e:
-            typer.echo(f"❌ Failed to load config file: {str(e)}")
+            typer.echo(f"❌ Failed to load config file: {traceback.format_exc()}")
             raise typer.Exit(1)
     else:
+        # If config is not given, require all required args
+        missing = []
+        if not source_path:
+            missing.append("source_path")
+        if not source_format:
+            missing.append("source_format")
+        if not dataset_name:
+            missing.append("dataset_name")
+        if missing:
+            typer.echo(f"❌ Missing required arguments: {', '.join(missing)}", err=True)
+            raise typer.Exit(1)
         # Create transformation config from command-line arguments
         transformation_config = None
         if enable_bbox_clipping or enable_augmentation or enable_tiling:
             transformation_config = TransformationConfigCLI(
-                enable_bbox_clipping=enable_bbox_clipping,
+                enable_bbox_clipping=enable_bbox_clipping
+                if enable_bbox_clipping is not None
+                else True,
                 bbox_clipping=BboxClippingConfigCLI(
-                    tolerance=bbox_clipping_tolerance, skip_invalid=skip_invalid_bbox
+                    tolerance=bbox_clipping_tolerance
+                    if bbox_clipping_tolerance is not None
+                    else 5,
+                    skip_invalid=skip_invalid_bbox
+                    if skip_invalid_bbox is not None
+                    else False,
                 )
                 if enable_bbox_clipping
                 else None,
-                enable_augmentation=enable_augmentation,
+                enable_augmentation=enable_augmentation
+                if enable_augmentation is not None
+                else False,
                 augmentation=AugmentationConfigCLI(
-                    probability=augmentation_probability,
-                    num_transforms=num_augmentations,
+                    probability=augmentation_probability
+                    if augmentation_probability is not None
+                    else 1.0,
+                    num_transforms=num_augmentations
+                    if num_augmentations is not None
+                    else 2,
                 )
                 if enable_augmentation
                 else None,
-                enable_tiling=enable_tiling,
+                enable_tiling=enable_tiling if enable_tiling is not None else False,
                 tiling=TilingConfigCLI(
-                    tile_size=tile_size,
-                    stride=tile_stride,
-                    min_visibility=min_visibility,
+                    tile_size=tile_size if tile_size is not None else 512,
+                    stride=tile_stride if tile_stride is not None else 416,
+                    min_visibility=min_visibility
+                    if min_visibility is not None
+                    else 0.1,
                 )
                 if enable_tiling
                 else None,
             )
-
         # Create config from command-line arguments
         config_data = {
             "source_path": source_path,
             "source_format": source_format,
             "dataset_name": dataset_name,
-            "root": root,
-            "split_name": split_name,
-            "processing_mode": processing_mode,
-            "track_with_dvc": track_with_dvc,
-            "bbox_tolerance": bbox_tolerance,
+            "root": root if root is not None else "data",
+            "split_name": split_name if split_name is not None else "train",
+            "processing_mode": processing_mode
+            if processing_mode is not None
+            else "batch",
+            "track_with_dvc": track_with_dvc if track_with_dvc is not None else False,
+            "bbox_tolerance": bbox_tolerance if bbox_tolerance is not None else 5,
             "dotenv_path": dotenv_path,
             "ls_xml_config": ls_xml_config,
-            "ls_parse_config": ls_parse_config,
+            "ls_parse_config": ls_parse_config
+            if ls_parse_config is not None
+            else False,
             "transformations": transformation_config,
         }
         try:

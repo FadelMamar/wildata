@@ -60,7 +60,7 @@ def test_config_validation():
             random_roi_count=5,
             roi_box_size=64,
             min_roi_size=16,
-            dark_threshold=0.3,
+            dark_threshold=0.7,
             background_class="background",
             save_format="jpg",
             quality=90,
