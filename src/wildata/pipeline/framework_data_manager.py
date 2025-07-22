@@ -212,7 +212,7 @@ class FrameworkDataManager:
 
     def _create_image_symlinks(self, dataset_name: str, source_format: str):
         """Create symlinks for images in the target directory."""
-        logger.info(f"Creating symlinks for images in {source_format} format")
+        logger.debug(f"Creating symlinks for images in {source_format} format")
 
         # Get existing splits from PathManager
         existing_splits = self.path_manager.get_existing_splits(dataset_name)
@@ -243,7 +243,7 @@ class FrameworkDataManager:
             try:
                 relative_path = os.path.relpath(item, dst_dir)
                 os.symlink(relative_path, dst_item)
-                logger.info(f"Created relative symlink: {dst_item} -> {relative_path}")
+                logger.debug(f"Created relative symlink: {dst_item} -> {relative_path}")
             except Exception:
                 shutil.copy2(item, dst_item)
 

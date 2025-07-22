@@ -81,13 +81,14 @@ class Loader:
         annotations_by_split = {}
 
         # Determine split for each image (simple logic - can be improved)
+        warnings = []
         for image in coco_data.get("images", []):
             if not Path(image["file_name"]).is_absolute():
                 path = image_dir / self.split_name / Path(image["file_name"]).name
                 if not path.exists():
-                    logger.warning(
-                        f"The expected format {path} does not exist. Skipping image."
-                    )
+                    msg = f"The expected format {path} does not exist. Skipping image."
+                    logger.debug(msg)
+                    warnings.append(msg)
                     continue
             else:
                 path = image["file_name"]
@@ -98,6 +99,14 @@ class Loader:
                 annotations_by_split[self.split_name] = []
             images_by_split[self.split_name].append(image)
 
+        if len(warnings) > 0:
+            logger.warning(
+                f"Failed to load {len(warnings)}/{len(coco_data.get('images', []))} images. Set logging level to debug to see."
+            )
+            logger.info(
+                "Make sure that the format is as expected when image paths are not absolute."
+            )
+            # logger.warning(warnings)
         # Group annotations by split
         for annotation in coco_data.get("annotations", []):
             image_id = annotation["image_id"]
@@ -144,7 +153,9 @@ class Loader:
             image_dir = Path(source_path).parents[1] / "images"
 
             if not image_dir.exists():
-                logger.warning(f"The expected format {image_dir}")
+                logger.warning(
+                    f"Expected {image_dir} does not exist. Loading might fail if image paths are not absolute."
+                )
 
             dataset_info, split_data = self._load_coco_to_split_format(
                 coco_data=coco_data,
@@ -164,6 +175,7 @@ class Loader:
             dataset_info, split_data = converter.convert(
                 dataset_name, task_type="detection", filter_invalid_annotations=False
             )
+            split_data = {self.split_name: split_data[self.split_name]}
 
         elif source_format == "ls":
             converter = LabelstudioConverter(dotenv_path=self.dotenv_path)

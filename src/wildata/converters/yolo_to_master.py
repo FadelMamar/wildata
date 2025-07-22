@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 from PIL import Image
+from tqdm import tqdm
 
 from ..validators.yolo_validator import YOLOValidator
 from .base_converter import BaseConverter
@@ -166,7 +167,9 @@ class YOLOToMasterConverter(BaseConverter):
         image_files = self._get_image_files(split_path)
 
         # Process each image
-        for img_idx, img_file in enumerate(image_files):
+        for img_idx, img_file in enumerate(
+            tqdm(image_files, desc=f"Converting YOLO {split_path} to COCO")
+        ):
             img_id = len(split_images) + 1
 
             # Get image dimensions
