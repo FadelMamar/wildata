@@ -84,12 +84,24 @@ class ROIDataset(Dataset):
             assert isinstance(class_mapping, dict), "Class mapping must be a dictionary"
             self._class_mapping = {int(k): v for k, v in class_mapping.items()}
 
-        self._update_class_mapping()
-
         # Load ROI labels
         roi_labels_path = self.labels_dir / "roi_labels.json"
         with open(roi_labels_path, "r", encoding="utf-8") as f:
             self.roi_labels = json.load(f)
+
+        self._update_class_mapping()
+
+        # Keep labels with class_id in the class mapping
+        updated_roi_labels = []
+        for label_info in self.roi_labels:
+            class_id = label_info["class_id"]
+            if int(class_id) in self._class_mapping.keys():
+                updated_roi_labels.append(label_info)
+
+        logger.info(
+            f"Loaded {len(updated_roi_labels)} ROI labels for dataset {dataset_name} split {split}."
+        )
+        self.roi_labels = updated_roi_labels
 
         self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
 
@@ -106,12 +118,18 @@ class ROIDataset(Dataset):
             self._class_mapping = {
                 k: v for k, v in self._class_mapping.items() if v in self.keep_classes
             }
+            logger.info(
+                f"Keeping classes: {self.keep_classes}. Updated class mapping: {self._class_mapping}"
+            )
         elif self.discard_classes:
             self._class_mapping = {
                 k: v
                 for k, v in self._class_mapping.items()
                 if v not in self.discard_classes
             }
+            logger.info(
+                f"Discarding classes: {self.discard_classes}. Updated class mapping: {self._class_mapping}"
+            )
 
         if self.load_as_single_class:
             background_class_id = [
