@@ -99,7 +99,7 @@ class ROIDataset(Dataset):
                 updated_roi_labels.append(label_info)
 
         logger.info(
-            f"Loaded {len(updated_roi_labels)} ROI labels for dataset {dataset_name} split {split}."
+            f"Loaded {len(updated_roi_labels)}/{len(self.roi_labels)} ROI samples for dataset:{dataset_name}; split:{split}."
         )
         self.roi_labels = updated_roi_labels
 
@@ -132,6 +132,11 @@ class ROIDataset(Dataset):
             )
 
         if self.load_as_single_class:
+            if self.background_class_name not in self._class_mapping.values():
+                raise ValueError(
+                    f"background class '{self.background_class_name}' not found in class mapping: {self._class_mapping}"
+                )
+
             background_class_id = [
                 k
                 for k, v in self._class_mapping.items()
