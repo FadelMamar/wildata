@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Union
 
 import torch
+from PIL import Image
 from torch.utils.data import ConcatDataset, Dataset
-from torchvision.io import decode_image
+from torchvision.transforms.v2 import Compose, PILToTensor, ToDtype
 from torchvision.transforms.v2 import functional as F
 
 from ..logging_config import get_logger
@@ -90,6 +91,8 @@ class ROIDataset(Dataset):
         with open(roi_labels_path, "r", encoding="utf-8") as f:
             self.roi_labels = json.load(f)
 
+        self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
+
     @property
     def class_mapping(
         self,
@@ -129,10 +132,11 @@ class ROIDataset(Dataset):
 
     def __getitem__(self, idx: int):
         label_info = self.roi_labels[idx]
-        img_path = self.images_dir / label_info["file_name"]
-        image = decode_image(img_path, mode="RGB")
-        image = F.to_dtype_image(image, dtype=torch.float32, scale=True)
+        img_path = (self.images_dir / label_info["file_name"]).as_posix()
+        image = Image.open(img_path).convert("RGB")
+        image = self.load_image(image)
         label = label_info["class_id"]
+
         if self.load_as_single_class:
             label = self._multi_class_single_class_mapping[label]
 
@@ -208,6 +212,10 @@ def load_all_roi_datasets(
                 )
         concat_dataset = ConcatDataset(list(roi_datasets.values()))
         return concat_dataset
+
+    elif concat and len(roi_datasets) == 1:
+        # If only one dataset, return it directly
+        return next(iter(roi_datasets.values()))
 
     return roi_datasets
 
