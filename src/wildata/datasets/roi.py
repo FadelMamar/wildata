@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 from PIL import Image
+from sympy.printing.pytorch import torch
 from torch.utils.data import ConcatDataset, Dataset
 from torchvision.transforms.v2 import Compose, PILToTensor, ToDtype
 from torchvision.transforms.v2 import functional as F
@@ -65,9 +66,9 @@ class ROIDataset(Dataset):
         }
         self._multi_class_single_class_mapping: dict[int, int] = {}
 
-        assert (self.keep_classes is None) + (
-            self.discard_classes is None
-        ) <= 1, "Cannot specify both keep_classes and discard_classes"
+        assert (
+            (self.keep_classes is not None) + (self.discard_classes is not None) <= 1
+        ), f"Cannot specify both keep_classes and discard_classes. keep_classes: {self.keep_classes}, discard_classes: {self.discard_classes}"
 
         # Resolve directories
         self.images_dir = self.path_manager.get_framework_split_image_dir(
@@ -153,18 +154,29 @@ class ROIDataset(Dataset):
     def __len__(self):
         return len(self.roi_labels)
 
-    def __getitem__(self, idx: int):
+    def get_label(self, idx) -> int:
+        label_info = self.roi_labels[idx]
+        label = label_info["class_id"]
+        if self.load_as_single_class:
+            label = self._multi_class_single_class_mapping[label]
+        return label
+
+    def get_image(self, idx: int) -> torch.Tensor:
         label_info = self.roi_labels[idx]
         img_path = (self.images_dir / label_info["file_name"]).as_posix()
         image = Image.open(img_path).convert("RGB")
-        image = self.load_image(image)
-        label = label_info["class_id"]
-
-        if self.load_as_single_class:
-            label = self._multi_class_single_class_mapping[label]
-
         if self.transform:
             image = self.transform(image)
+        return self.load_image(image)
+
+    def get_image_path(self, idx: int) -> str:
+        label_info = self.roi_labels[idx]
+        img_path = (self.images_dir / label_info["file_name"]).as_posix()
+        return img_path
+
+    def __getitem__(self, idx: int):
+        image = self.get_image(idx)
+        label = self.get_label(idx)
         return image, torch.tensor([label]).int()
 
 
