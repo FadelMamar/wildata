@@ -18,7 +18,7 @@ import typer
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from .config import ROOT, AugmentationConfig, ROIConfig, TilingConfig
+from .config import ROOT, AugmentationConfig, ROIConfig, TilingConfig, ENV_FILE
 
 from .logging_config import setup_logging
 
@@ -266,7 +266,7 @@ class ImportDatasetConfig(BaseModel):
     bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
 
     # Label Studio options
-    dotenv_path: Optional[str] = Field(default=None, description="Path to .env file")
+    dotenv_path: Optional[str] = Field(default=ENV_FILE, description="Path to .env file")
     ls_xml_config: Optional[str] = Field(
         default=None, description="Label Studio XML config path"
     )
@@ -350,11 +350,13 @@ class ROIDatasetConfig(BaseModel):
     split_name: str = Field(default="val", description="Split name (train/val/test)")
     bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
     roi_config: ROIConfigCLI = Field(..., description="ROI configuration")
+    ls_xml_config: Optional[str] = Field(default=None, description="Label Studio XML config path")
+    ls_parse_config: bool = Field(default=False, description="Parse Label Studio config")
 
     @field_validator("source_format", mode="before")
     @classmethod
     def validate_source_format(cls, v: Any) -> str:
-        if v not in ["coco", "yolo"]:
+        if v not in ["coco", "yolo","ls"]:
             raise ValueError('source_format must be either "coco" or "yolo"')
         return v
 
@@ -777,7 +779,6 @@ class BulkImportDatasetConfig(BaseModel):
     processing_mode: str = Field(default="batch", description="Processing mode (streaming/batch)")
     track_with_dvc: bool = Field(default=False, description="Track dataset with DVC")
     bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
-    dotenv_path: Optional[str] = Field(default=None, description="Path to .env file")
     ls_xml_config: Optional[str] = Field(default=None, description="Label Studio XML config path")
     ls_parse_config: bool = Field(default=False, description="Parse Label Studio config")
     roi_config: Optional[ROIConfigCLI] = Field(default=None, description="ROI configuration")
@@ -880,6 +881,8 @@ def create_roi_dataset(
             typer.echo(f"   Split: {config.split_name}")
             typer.echo(f"   Output root: {config.root}")
             typer.echo(f"   ROI config: {config.roi_config}")
+            typer.echo(f"   LS XML config: {config.ls_xml_config}")
+            typer.echo(f"   LS parse config: {config.ls_parse_config}")
 
         loader = Loader()
         dataset_info, split_coco_data = loader.load(
@@ -888,6 +891,9 @@ def create_roi_dataset(
             config.dataset_name,
             config.bbox_tolerance,
             config.split_name,
+            dotenv_path=ENV_FILE,
+            ls_xml_config=config.ls_xml_config,
+            ls_parse_config=config.ls_parse_config,
         )
 
         path_manager = PathManager(Path(config.root))
@@ -939,6 +945,8 @@ def create_roi_one_worker(args):
             split_name=config_dict['split_name'],
             bbox_tolerance=config_dict['bbox_tolerance'],
             roi_config=config_dict['roi_config'],
+            ls_xml_config=config_dict['ls_xml_config'],
+            ls_parse_config=config_dict['ls_parse_config'],
         )
         # Use the same core logic as create_roi_dataset
         from .cli import FrameworkDataManager, PathManager, Loader, ROIConfig
@@ -949,6 +957,9 @@ def create_roi_one_worker(args):
             single_config.dataset_name,
             single_config.bbox_tolerance,
             single_config.split_name,
+            dotenv_path=ENV_FILE,
+            ls_xml_config=single_config.ls_xml_config,
+            ls_parse_config=single_config.ls_parse_config,
         )
         path_manager = PathManager(Path(single_config.root))
         framework_data_manager = FrameworkDataManager(path_manager)
@@ -986,6 +997,8 @@ class BulkCreateROIDatasetConfig(BaseModel):
     split_name: str = Field(default="val", description="Split name (train/val/test)")
     bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
     roi_config: ROIConfigCLI = Field(..., description="ROI configuration")
+    ls_xml_config: Optional[str] = Field(default=None, description="Label Studio XML config path")
+    ls_parse_config: bool = Field(default=False, description="Parse Label Studio config")
 
     @classmethod
     def from_yaml(cls, path: str) -> "BulkCreateROIDatasetConfig":
@@ -1007,6 +1020,8 @@ def bulk_create_roi_datasets(
       root: data
       split_name: val
       bbox_tolerance: 5
+      ls_xml_config: null # path to Label Studio XML config file
+      ls_parse_config: false # parse Label Studio config using Server
       roi_config:
         random_roi_count: 1
         roi_box_size: 128

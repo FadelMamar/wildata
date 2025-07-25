@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 ROOT = Path(__file__).parents[2]
+ENV_FILE = str(ROOT / ".env")
 
 
 @dataclass
