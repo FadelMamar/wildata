@@ -6,23 +6,19 @@ spatial autocorrelation, including camp-based grouping and GPS coordinate analys
 """
 
 from .camp_partitioner import CampPartitioner
-from .metadata_partitioner import MetadataPartitioner
 from .partitioning_pipeline import PartitioningPipeline
 from .spatial_partitioner import SpatialPartitioner
 from .strategies import (
     CampBasedSplit,
     GroupShuffleSplit,
-    MetadataBasedSplit,
     SpatialGroupShuffleSplit,
 )
 
 __all__ = [
     "SpatialPartitioner",
     "CampPartitioner",
-    "MetadataPartitioner",
     "PartitioningPipeline",
     "GroupShuffleSplit",
     "SpatialGroupShuffleSplit",
     "CampBasedSplit",
-    "MetadataBasedSplit",
 ]

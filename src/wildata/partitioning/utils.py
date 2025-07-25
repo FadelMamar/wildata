@@ -55,6 +55,8 @@ class GPSUtils:
         # https://exiftool.org/TagNames/GPS.html
         from PIL.ExifTags import GPSTAGS
 
+        assert isinstance(labeled_exif, dict), "Provide dict"
+
         gps_info = labeled_exif.get("GPSInfo", None)
 
         if gps_info is None:
@@ -107,7 +109,7 @@ class GPSUtils:
             ref = gps_info[coord + "Ref"]
             gps_coords[coord] = f"{degrees} {minutes}m {seconds}s {ref}"
 
-        lat, long = geopy.Point.from_string(
+        coord = geopy.Point.from_string(
             gps_coords["GPSLatitude"] + " " + gps_coords["GPSLongitude"]
         )
-        return lat, long
+        return coord.latitude, coord.longitude
