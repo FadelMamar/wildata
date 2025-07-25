@@ -118,7 +118,7 @@ class ROIDataset(Dataset):
             self._class_mapping = {
                 k: v for k, v in self._class_mapping.items() if v in self.keep_classes
             }
-            logger.info(
+            logger.debug(
                 f"Keeping classes: {self.keep_classes}. Updated class mapping: {self._class_mapping}"
             )
         elif self.discard_classes:
@@ -127,7 +127,7 @@ class ROIDataset(Dataset):
                 for k, v in self._class_mapping.items()
                 if v not in self.discard_classes
             }
-            logger.info(
+            logger.debug(
                 f"Discarding classes: {self.discard_classes}. Updated class mapping: {self._class_mapping}"
             )
 
