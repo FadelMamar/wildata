@@ -48,6 +48,7 @@ class ROIDataset(Dataset):
             "other",
             "label",
         ],
+        resample_function: Optional[Callable] = None,
     ):
         self.dataset_name = dataset_name
         self.split = split
@@ -104,6 +105,9 @@ class ROIDataset(Dataset):
         self.roi_labels = updated_roi_labels
 
         self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
+
+        if resample_function:
+            self.roi_labels = resample_function(self.roi_labels)
 
     @property
     def class_mapping(
@@ -189,6 +193,7 @@ def load_all_roi_datasets(
     single_class_name: str = "wildlife",
     keep_classes: Optional[list[str]] = None,
     discard_classes: Optional[list[str]] = None,
+    resample_function: Optional[Callable] = None,
 ) -> dict[str, ROIDataset] | ConcatDataset:
     """
     Load all available ROI datasets for a given split.
@@ -227,6 +232,7 @@ def load_all_roi_datasets(
                 single_class_name=single_class_name,
                 keep_classes=keep_classes,
                 discard_classes=discard_classes,
+                resample_function=resample_function,
             )
             roi_datasets[dataset_name] = ds
         except Exception as e:
@@ -263,7 +269,8 @@ def load_all_splits_concatenated(
     single_class_name: str = "wildlife",
     keep_classes: Optional[list[str]] = None,
     discard_classes: Optional[list[str]] = None,
-) -> Dict[str, ConcatDataset] | Dict[str, ROIDataset]:
+    resample_function: Optional[Callable] = None,
+    ) -> Dict[str, ConcatDataset] | Dict[str, ROIDataset]:
     """
     Load and concatenate all available ROI datasets for each split.
     Returns a dictionary mapping split names to ConcatDataset objects.
@@ -282,6 +289,7 @@ def load_all_splits_concatenated(
             single_class_name=single_class_name,
             keep_classes=keep_classes,
             discard_classes=discard_classes,
+            resample_function=resample_function,
         )
         if not concat_dataset:
             continue
