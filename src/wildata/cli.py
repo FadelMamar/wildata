@@ -790,11 +790,14 @@ class BulkImportDatasetConfig(BaseModel):
             data = yaml.safe_load(f) or {}
         return cls.model_validate(data)
 
+def create_dataset_name(file_name: str) -> str:
+    return Path(file_name).stem.replace(" ", "").replace(",", "-").lower()
+
 @app.command()
 def bulk_import_datasets(
     config_file: str = typer.Option(..., "--config", "-c", help="Path to YAML config file (YAML only)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-    num_workers: int = typer.Option(4, "--num-workers", "-n", help="Number of workers to use for bulk import"),
+    num_workers: int = typer.Option(2, "--num-workers", "-n", help="Number of workers to use for bulk import"),
 ):
     """Bulk import multiple datasets from all files in a directory.
 
@@ -825,7 +828,7 @@ def bulk_import_datasets(
         typer.echo(f"❌ No files found in directory: {config.source_path}")
         raise typer.Exit(1)
     source_paths = [os.path.join(config.source_path, f) for f in files]
-    dataset_names = [Path(f).stem.replace(" ", "").replace(",", "-").lower() for f in files]
+    dataset_names = [create_dataset_name(f) for f in files]
     formats = [config.source_format] * len(source_paths)
 
     # Convert config to dict for pickling
@@ -916,6 +919,150 @@ def create_roi_dataset(
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
+
+
+def create_roi_one_worker(args):
+    """Top-level worker for ProcessPoolExecutor in bulk_create_roi_datasets."""
+    i, src, name, config_dict, verbose = args
+    from pydantic import ValidationError
+    import traceback
+    import typer
+    try:
+        typer.echo(f"\n=== Creating ROI [{i+1}]: {name} ===")
+        from pathlib import Path
+        from .cli import ROIDatasetConfig
+        single_config = ROIDatasetConfig(
+            source_path=src,
+            source_format=config_dict['source_format'],
+            dataset_name=name,
+            root=config_dict['root'],
+            split_name=config_dict['split_name'],
+            bbox_tolerance=config_dict['bbox_tolerance'],
+            roi_config=config_dict['roi_config'],
+        )
+        # Use the same core logic as create_roi_dataset
+        from .cli import FrameworkDataManager, PathManager, Loader, ROIConfig
+        loader = Loader()
+        dataset_info, split_coco_data = loader.load(
+            single_config.source_path,
+            single_config.source_format,
+            single_config.dataset_name,
+            single_config.bbox_tolerance,
+            single_config.split_name,
+        )
+        path_manager = PathManager(Path(single_config.root))
+        framework_data_manager = FrameworkDataManager(path_manager)
+        roi_config = ROIConfig(
+            random_roi_count=single_config.roi_config.random_roi_count,
+            roi_box_size=single_config.roi_config.roi_box_size,
+            min_roi_size=single_config.roi_config.min_roi_size,
+            dark_threshold=single_config.roi_config.dark_threshold,
+            roi_callback=None,
+            background_class=single_config.roi_config.background_class,
+            save_format=single_config.roi_config.save_format,
+            quality=single_config.roi_config.quality,
+        )
+        framework_data_manager.create_roi_format(
+            dataset_name=single_config.dataset_name,
+            coco_data=split_coco_data[single_config.split_name],
+            split=single_config.split_name,
+            roi_config=roi_config,
+        )
+        return (i, name, True, None)
+    except ValidationError as e:
+        msg = f"❌ Configuration validation error for '{name}':\n" + "\n".join(f"   {error['loc'][0]}: {error['msg']}" for error in e.errors())
+        return (i, name, False, msg)
+    except Exception as e:
+        msg = f"❌ Unexpected error for '{name}': {str(e)}"
+        if verbose:
+            msg += f"\n   Traceback: {traceback.format_exc()}"
+        return (i, name, False, msg)
+
+class BulkCreateROIDatasetConfig(BaseModel):
+    """Configuration for bulk creation of ROI datasets from a directory."""
+    source_path: str = Field(..., description="Directory containing source dataset files")
+    source_format: str = Field(..., description="Source format (coco/yolo)")
+    root: str = Field(default="data", description="Root directory for data storage")
+    split_name: str = Field(default="val", description="Split name (train/val/test)")
+    bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
+    roi_config: ROIConfigCLI = Field(..., description="ROI configuration")
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "BulkCreateROIDatasetConfig":
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return cls.model_validate(data)
+
+@app.command()
+def bulk_create_roi_datasets(
+    config_file: str = typer.Option(..., "--config", "-c", help="Path to YAML config file (YAML only)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    num_workers: int = typer.Option(2, "--num-workers", "-n", help="Number of workers to use for bulk ROI creation"),
+):
+    """Bulk create ROI datasets from all files in a directory (multiprocessing).
+
+    The config YAML should contain:
+      source_path: path/to/directory  # directory containing dataset files
+      source_format: yolo  # or coco
+      root: data
+      split_name: val
+      bbox_tolerance: 5
+      roi_config:
+        random_roi_count: 1
+        roi_box_size: 128
+        min_roi_size: 32
+        dark_threshold: 0.5
+        background_class: background
+        save_format: jpg
+        quality: 95
+
+    Each file in the directory will be used to create an ROI dataset, with the dataset name derived from the filename (without extension).
+    """
+    import os
+    from pathlib import Path
+    if not (config_file.endswith('.yaml') or config_file.endswith('.yml')):
+        typer.echo("❌ Only YAML config files are supported for bulk ROI creation. Please provide a .yaml or .yml file.")
+        raise typer.Exit(1)
+    try:
+        config = BulkCreateROIDatasetConfig.from_yaml(config_file)
+    except Exception as e:
+        typer.echo(f"❌ Failed to load YAML config file: {traceback.format_exc()}")
+        raise typer.Exit(1)
+
+    # Validate directory
+    if not os.path.isdir(config.source_path):
+        typer.echo(f"❌ source_path must be a directory: {config.source_path}")
+        raise typer.Exit(1)
+    # List files in directory (ignore hidden files)
+    files = [f for f in os.listdir(config.source_path) if os.path.isfile(os.path.join(config.source_path, f)) and not f.startswith('.')]
+    if not files:
+        typer.echo(f"❌ No files found in directory: {config.source_path}")
+        raise typer.Exit(1)
+    source_paths = [os.path.join(config.source_path, f) for f in files]
+    dataset_names = [create_dataset_name(f) for f in files]
+
+    config_dict = config.model_dump()
+    args_list = [
+        (i, src, name, config_dict, verbose)
+        for i, (src, name) in enumerate(zip(source_paths, dataset_names))
+    ]
+
+    results = [None] * len(source_paths)
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        future_to_idx = {
+            executor.submit(create_roi_one_worker, args): i
+            for i, args in enumerate(args_list)
+        }
+        for future in as_completed(future_to_idx):
+            i, name, success, msg = future.result()
+            results[i] = success
+            if msg:
+                typer.echo(msg)
+            elif success:
+                typer.echo(f"✅ ROI creation finished for '{name}' [{i+1}/{len(source_paths)}]")
+            else:
+                typer.echo(f"❌ ROI creation failed for '{name}' [{i+1}/{len(source_paths)}]")
+    typer.echo(f"\nBulk ROI creation complete. {sum(results)}/{len(results)} succeeded.")
 
 
 @app.command()
