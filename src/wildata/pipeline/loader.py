@@ -125,6 +125,13 @@ class Loader:
             }
 
         return dataset_info, split_data
+    
+    def _check_if_all_images_are_absolute(self, coco_data: Dict[str, Any]) -> bool:
+        num_images_is_absolute = 0
+        for image in coco_data.get("images", []):
+            if Path(image["file_name"]).is_absolute():
+                num_images_is_absolute += 1
+        return num_images_is_absolute == len(coco_data.get("images", []))
 
     def _load_and_validate_dataset(
         self,
@@ -152,10 +159,14 @@ class Loader:
             coco_data = self._load_json(source_path)
             image_dir = Path(source_path).parents[1] / "images"
 
+            if len(coco_data.get("images", [])) == 0:
+                raise ValueError("No images found in COCO data")
+
             if not image_dir.exists():
-                logger.warning(
-                    f"Expected {image_dir} does not exist. Loading might fail if image paths are not absolute."
-                )
+                if not self._check_if_all_images_are_absolute(coco_data):
+                    raise ValueError(
+                        f"Expected {image_dir} does not exist. Loading will fail as not all image paths are absolute."
+                    )
 
             dataset_info, split_data = self._load_coco_to_split_format(
                 coco_data=coco_data,
