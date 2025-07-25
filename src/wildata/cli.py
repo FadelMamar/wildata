@@ -24,7 +24,7 @@ from .logging_config import setup_logging
 
 setup_logging()
 
-from .pipeline.data_pipeline import DataPipeline
+from .pipeline import DataPipeline, Loader, PathManager, FrameworkDataManager
 from .pipeline.dvc_manager import DVCConfig, DVCManager, DVCStorageType
 from .transformations import (
     AugmentationTransformer,
@@ -274,6 +274,7 @@ class ImportDatasetConfig(BaseModel):
     roi_config: Optional[ROIConfigCLI] = Field(
         default=None, description="ROI configuration"
     )
+    disable_roi: bool = Field(default=False, description="Disable ROI extraction")
 
     # Transformation pipeline configuration
     transformations: Optional[TransformationConfigCLI] = Field(
@@ -332,6 +333,48 @@ class ImportDatasetConfig(BaseModel):
 
     def to_yaml(self, path: str) -> None:
         """Save configuration to YAML file."""
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.dump(self.model_dump(), f, default_flow_style=False, indent=2)
+
+
+class ROIDatasetConfig(BaseModel):
+    """Configuration for creating ROI datasets."""
+    source_path: str = Field(..., description="Path to source dataset")
+    source_format: str = Field(..., description="Source format (coco/yolo)")
+    dataset_name: str = Field(..., description="Name for the dataset")
+    root: str = Field(default="data", description="Root directory for data storage")
+    split_name: str = Field(default="val", description="Split name (train/val/test)")
+    bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
+    roi_config: ROIConfigCLI = Field(..., description="ROI configuration")
+
+    @field_validator("source_format", mode="before")
+    @classmethod
+    def validate_source_format(cls, v: Any) -> str:
+        if v not in ["coco", "yolo"]:
+            raise ValueError('source_format must be either "coco" or "yolo"')
+        return v
+
+    @field_validator("split_name", mode="before")
+    @classmethod
+    def validate_split_name(cls, v: Any) -> str:
+        if v not in ["train", "val", "test"]:
+            raise ValueError("split_name must be one of: train, val, test")
+        return v
+
+    @field_validator("source_path", mode="before")
+    @classmethod
+    def validate_source_path(cls, v: Any) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"Source path does not exist: {v}")
+        return v
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "ROIDatasetConfig":
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return cls.model_validate(data)
+
+    def to_yaml(self, path: str) -> None:
         with open(path, "w", encoding="utf-8") as f:
             yaml.dump(self.model_dump(), f, default_flow_style=False, indent=2)
 
@@ -430,6 +473,9 @@ def import_dataset(
     min_visibility: Optional[float] = typer.Option(
         None, "--min-visibility", help="Minimum visibility ratio"
     ),
+    disable_roi: Optional[bool] = typer.Option(
+        None, "--disable-roi", help="Disable ROI extraction"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Import a dataset from various formats into the WildData pipeline."""
@@ -518,6 +564,7 @@ def import_dataset(
             if ls_parse_config is not None
             else False,
             "transformations": transformation_config,
+            "disable_roi": disable_roi if disable_roi is not None else False,
         }
         try:
             config = ImportDatasetConfig(**config_data)
@@ -529,7 +576,7 @@ def import_dataset(
 
     # Convert ROI config if provided
     roi_config = None
-    if config.roi_config:
+    if not config.disable_roi:
         roi_config = ROIConfig(
             random_roi_count=config.roi_config.random_roi_count,
             roi_box_size=config.roi_config.roi_box_size,
@@ -623,7 +670,6 @@ def import_dataset(
             split_name=config.split_name,
             enable_dvc=config.enable_dvc,
             transformation_pipeline=transformation_pipeline,
-            filter_pipeline=None,
         )
 
         if verbose:
@@ -672,6 +718,71 @@ def import_dataset(
         raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"❌ Import failed: {str(e)}")
+        if verbose:
+            typer.echo(f"   Traceback: {traceback.format_exc()}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def create_roi_dataset(
+    config_file: str = typer.Option(
+        ..., "--config", "-c", help="Path to YAML config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+):
+    """Create an ROI dataset from a source dataset using a YAML config file."""
+    # Only config file is allowed
+    try:
+        config = ROIDatasetConfig.from_yaml(config_file)
+    except Exception as e:
+        typer.echo(f"❌ Failed to load config file: {traceback.format_exc()}")
+        raise typer.Exit(1)
+
+    try:
+        if verbose:
+            typer.echo(f"🔧 Creating dataset...")
+            typer.echo(f"   Source: {config.source_path}")
+            typer.echo(f"   Format: {config.source_format}")
+            typer.echo(f"   Name: {config.dataset_name}")
+            typer.echo(f"   Split: {config.split_name}")
+            typer.echo(f"   Output root: {config.root}")
+            typer.echo(f"   ROI config: {config.roi_config}")
+
+        loader = Loader()
+        dataset_info, split_coco_data = loader.load(
+            config.source_path,
+            config.source_format,
+            config.dataset_name,
+            config.bbox_tolerance,
+            config.split_name,
+        )
+
+        path_manager = PathManager(Path(config.root))
+        framework_data_manager = FrameworkDataManager(path_manager)
+        roi_config = ROIConfig(
+            random_roi_count=config.roi_config.random_roi_count,
+            roi_box_size=config.roi_config.roi_box_size,
+            min_roi_size=config.roi_config.min_roi_size,
+            dark_threshold=config.roi_config.dark_threshold,
+            roi_callback=None,  # Not supported via CLI config
+            background_class=config.roi_config.background_class,
+            save_format=config.roi_config.save_format,
+            quality=config.roi_config.quality,
+        )
+        framework_data_manager.create_roi_format(
+            dataset_name=config.dataset_name,
+            coco_data=split_coco_data[config.split_name],
+            split=config.split_name,
+            roi_config=roi_config,
+        )
+        typer.echo(f"✅ Successfully created ROI dataset for '{config.dataset_name}' (split: {config.split_name}) at {config.root}")
+    except ValidationError as e:
+        typer.echo(f"❌ Configuration validation error:")
+        for error in e.errors():
+            typer.echo(f"   {error['loc'][0]}: {error['msg']}")
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"❌ Failed to create ROI dataset: {str(e)}")
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
