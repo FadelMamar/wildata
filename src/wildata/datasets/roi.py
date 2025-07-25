@@ -104,15 +104,16 @@ class ROIDataset(Dataset):
             for label_info in updated_roi_labels:
                 label_info["class_id"] = self._multi_class_single_class_mapping[label_info["class_id"]]
         
-        logger.info(
-            f"Loaded {len(updated_roi_labels)}/{len(self.roi_labels)} ROI samples for dataset:{dataset_name}; split:{split}."
-        )
-        self.roi_labels = updated_roi_labels
-
         self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
 
         if resample_function:
-            self.roi_labels = resample_function(self.roi_labels)
+            updated_roi_labels = resample_function(updated_roi_labels)
+        
+        logger.info(
+            f"Loaded {len(updated_roi_labels)}/{len(self.roi_labels)} ROI samples for dataset:{dataset_name}; split:{split}."
+        )
+
+        self.roi_labels = updated_roi_labels
     
     @property
     def class_mapping(
