@@ -11,7 +11,7 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import typer
@@ -33,6 +33,9 @@ from .transformations import (
     TransformationPipeline,
 )
 from .visualization import FiftyOneManager
+
+import concurrent.futures
+from concurrent.futures import as_completed, ProcessPoolExecutor
 
 
 class ROIConfigCLI(BaseModel):
@@ -409,6 +412,192 @@ app = typer.Typer(
 )
 
 
+def _import_dataset_core(config: ImportDatasetConfig, verbose: bool = False):
+    """Core logic for importing a dataset, shared by CLI and bulk import."""
+    # Convert ROI config if provided
+    roi_config = None
+    if not config.disable_roi and config.roi_config:
+        roi_config = ROIConfig(
+            random_roi_count=config.roi_config.random_roi_count,
+            roi_box_size=config.roi_config.roi_box_size,
+            min_roi_size=config.roi_config.min_roi_size,
+            dark_threshold=config.roi_config.dark_threshold,
+            background_class=config.roi_config.background_class,
+            save_format=config.roi_config.save_format,
+            quality=config.roi_config.quality,
+        )
+
+    # Create transformation pipeline if configured
+    transformation_pipeline = None
+    if config.transformations:
+        if verbose:
+            typer.echo(f"🔧 Creating transformation pipeline...")
+
+        transformation_pipeline = TransformationPipeline()
+
+        # Add bbox clipping transformer
+        if (
+            config.transformations.enable_bbox_clipping
+            and config.transformations.bbox_clipping
+        ):
+            bbox_config = config.transformations.bbox_clipping
+            bbox_transformer = BoundingBoxClippingTransformer(
+                tolerance=bbox_config.tolerance, skip_invalid=bbox_config.skip_invalid
+            )
+            transformation_pipeline.add_transformer(bbox_transformer)
+            if verbose:
+                typer.echo(
+                    f"   Added BoundingBoxClippingTransformer (tolerance: {bbox_config.tolerance})"
+                )
+
+        # Add augmentation transformer
+        if (
+            config.transformations.enable_augmentation
+            and config.transformations.augmentation
+        ):
+            aug_config = config.transformations.augmentation
+            aug_transformer = AugmentationTransformer(
+                config=AugmentationConfig(
+                    rotation_range=aug_config.rotation_range,
+                    probability=aug_config.probability,
+                    brightness_range=aug_config.brightness_range,
+                    scale=aug_config.scale,
+                    translate=aug_config.translate,
+                    shear=aug_config.shear,
+                    contrast_range=aug_config.contrast_range,
+                    noise_std=aug_config.noise_std,
+                    seed=aug_config.seed,
+                    num_transforms=aug_config.num_transforms,
+                )
+            )
+            transformation_pipeline.add_transformer(aug_transformer)
+            if verbose:
+                typer.echo(
+                    f"   Added AugmentationTransformer (num_transforms: {aug_config.num_transforms})"
+                )
+
+        # Add tiling transformer
+        if config.transformations.enable_tiling and config.transformations.tiling:
+            tiling_config = config.transformations.tiling
+            tiling_transformer = TilingTransformer(
+                config=TilingConfig(
+                    tile_size=tiling_config.tile_size,
+                    stride=tiling_config.stride,
+                    min_visibility=tiling_config.min_visibility,
+                    max_negative_tiles_in_negative_image=tiling_config.max_negative_tiles_in_negative_image,
+                    negative_positive_ratio=tiling_config.negative_positive_ratio,
+                    dark_threshold=tiling_config.dark_threshold,
+                )
+            )
+            transformation_pipeline.add_transformer(tiling_transformer)
+            if verbose:
+                typer.echo(
+                    f"   Added TilingTransformer (tile_size: {tiling_config.tile_size}, stride: {tiling_config.stride})"
+                )
+
+    # Execute import
+    try:
+        if verbose:
+            typer.echo(f"🔧 Creating data pipeline...")
+            typer.echo(f"   Root: {config.root}")
+            typer.echo(f"   Split: {config.split_name}")
+            typer.echo(f"   DVC enabled: {config.enable_dvc}")
+            if transformation_pipeline:
+                typer.echo(f"   Transformers: {len(transformation_pipeline)}")
+
+        pipeline = DataPipeline(
+            root=config.root,
+            split_name=config.split_name,
+            enable_dvc=config.enable_dvc,
+            transformation_pipeline=transformation_pipeline,
+        )
+
+        if verbose:
+            typer.echo(f"📥 Importing dataset...")
+            typer.echo(f"   Source: {config.source_path}")
+            typer.echo(f"   Format: {config.source_format}")
+            typer.echo(f"   Name: {config.dataset_name}")
+            typer.echo(f"   Mode: {config.processing_mode}")
+
+        result = pipeline.import_dataset(
+            source_path=config.source_path,
+            source_format=config.source_format,
+            dataset_name=config.dataset_name,
+            processing_mode=config.processing_mode,
+            track_with_dvc=config.track_with_dvc,
+            bbox_tolerance=config.bbox_tolerance,
+            roi_config=roi_config,
+            dotenv_path=config.dotenv_path,
+            ls_xml_config=config.ls_xml_config,
+            ls_parse_config=config.ls_parse_config,
+        )
+
+        if result["success"]:
+            typer.echo(f"✅ Successfully imported dataset '{config.dataset_name}'")
+            if verbose:
+                typer.echo(f"   Dataset info: {result['dataset_info_path']}")
+                typer.echo(f"   Framework paths: {result['framework_paths']}")
+                typer.echo(f"   Processing mode: {result['processing_mode']}")
+                typer.echo(f"   DVC tracked: {result['dvc_tracked']}")
+        else:
+            typer.echo(f"❌ Failed to import dataset: {result['error']}")
+            if "validation_errors" in result and result["validation_errors"]:
+                typer.echo("   Validation errors:")
+                for error in result["validation_errors"]:
+                    typer.echo(f"     - {error}")
+            if "hints" in result and result["hints"]:
+                typer.echo("   Hints:")
+                for hint in result["hints"]:
+                    typer.echo(f"     - {hint}")
+            return False
+        return True
+    except ValidationError as e:
+        typer.echo(f"❌ Configuration validation error:")
+        for error in e.errors():
+            typer.echo(f"   {error['loc'][0]}: {error['msg']}")
+        return False
+    except Exception as e:
+        typer.echo(f"❌ Import failed: {str(e)}")
+        if verbose:
+            typer.echo(f"   Traceback: {traceback.format_exc()}")
+        return False
+
+def import_one_worker(args):
+    """Top-level worker for ProcessPoolExecutor in bulk_import_datasets."""
+    i, src, name, fmt, config_dict, verbose = args
+    from pydantic import ValidationError
+    import traceback
+    import typer
+    try:
+        typer.echo(f"\n=== Importing [{i+1}]: {name} ===")
+        single_config = ImportDatasetConfig(
+            source_path=src,
+            source_format=fmt,
+            dataset_name=name,
+            root=config_dict['root'],
+            split_name=config_dict['split_name'],
+            enable_dvc=config_dict['enable_dvc'],
+            processing_mode=config_dict['processing_mode'],
+            track_with_dvc=config_dict['track_with_dvc'],
+            bbox_tolerance=config_dict['bbox_tolerance'],
+            dotenv_path=config_dict['dotenv_path'],
+            ls_xml_config=config_dict['ls_xml_config'],
+            ls_parse_config=config_dict['ls_parse_config'],
+            roi_config=config_dict['roi_config'],
+            disable_roi=config_dict['disable_roi'],
+            transformations=config_dict['transformations'],
+        )
+        success = _import_dataset_core(single_config, verbose)
+        return (i, name, success, None)
+    except ValidationError as e:
+        msg = f"❌ Configuration validation error for '{name}':\n" + "\n".join(f"   {error['loc'][0]}: {error['msg']}" for error in e.errors())
+        return (i, name, False, msg)
+    except Exception as e:
+        msg = f"❌ Unexpected error for '{name}': {str(e)}"
+        if verbose:
+            msg += f"\n   Traceback: {traceback.format_exc()}"
+        return (i, name, False, msg)
+
 @app.command()
 def import_dataset(
     config_file: Optional[str] = typer.Option(
@@ -575,153 +764,93 @@ def import_dataset(
                 typer.echo(f"   {error['loc'][0]}: {error['msg']}")
             raise typer.Exit(1)
 
-    # Convert ROI config if provided
-    roi_config = None
-    if not config.disable_roi:
-        roi_config = ROIConfig(
-            random_roi_count=config.roi_config.random_roi_count,
-            roi_box_size=config.roi_config.roi_box_size,
-            min_roi_size=config.roi_config.min_roi_size,
-            dark_threshold=config.roi_config.dark_threshold,
-            background_class=config.roi_config.background_class,
-            save_format=config.roi_config.save_format,
-            quality=config.roi_config.quality,
-        )
+    _import_dataset_core(config, verbose)
 
-    # Create transformation pipeline if configured
-    transformation_pipeline = None
-    if config.transformations:
-        if verbose:
-            typer.echo(f"🔧 Creating transformation pipeline...")
 
-        transformation_pipeline = TransformationPipeline()
+class BulkImportDatasetConfig(BaseModel):
+    """Configuration for bulk importing datasets from a directory."""
+    source_path: str = Field(..., description="Directory containing source dataset files")
+    source_format: str = Field(..., description="Source format (coco/yolo/ls)")
+    root: str = Field(default="data", description="Root directory for data storage")
+    split_name: str = Field(default="train", description="Split name (train/val/test)")
+    enable_dvc: bool = Field(default=False, description="Enable DVC integration")
+    processing_mode: str = Field(default="batch", description="Processing mode (streaming/batch)")
+    track_with_dvc: bool = Field(default=False, description="Track dataset with DVC")
+    bbox_tolerance: int = Field(default=5, description="Bbox validation tolerance")
+    dotenv_path: Optional[str] = Field(default=None, description="Path to .env file")
+    ls_xml_config: Optional[str] = Field(default=None, description="Label Studio XML config path")
+    ls_parse_config: bool = Field(default=False, description="Parse Label Studio config")
+    roi_config: Optional[ROIConfigCLI] = Field(default=None, description="ROI configuration")
+    disable_roi: bool = Field(default=False, description="Disable ROI extraction")
+    transformations: Optional[TransformationConfigCLI] = Field(default=None, description="Transformation pipeline config")
 
-        # Add bbox clipping transformer
-        if (
-            config.transformations.enable_bbox_clipping
-            and config.transformations.bbox_clipping
-        ):
-            bbox_config = config.transformations.bbox_clipping
-            bbox_transformer = BoundingBoxClippingTransformer(
-                tolerance=bbox_config.tolerance, skip_invalid=bbox_config.skip_invalid
-            )
-            transformation_pipeline.add_transformer(bbox_transformer)
-            if verbose:
-                typer.echo(
-                    f"   Added BoundingBoxClippingTransformer (tolerance: {bbox_config.tolerance})"
-                )
+    @classmethod
+    def from_yaml(cls, path: str) -> "BulkImportDatasetConfig":
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return cls.model_validate(data)
 
-        # Add augmentation transformer
-        if (
-            config.transformations.enable_augmentation
-            and config.transformations.augmentation
-        ):
-            aug_config = config.transformations.augmentation
-            aug_transformer = AugmentationTransformer(
-                config=AugmentationConfig(
-                    rotation_range=aug_config.rotation_range,
-                    probability=aug_config.probability,
-                    brightness_range=aug_config.brightness_range,
-                    scale=aug_config.scale,
-                    translate=aug_config.translate,
-                    shear=aug_config.shear,
-                    contrast_range=aug_config.contrast_range,
-                    noise_std=aug_config.noise_std,
-                    seed=aug_config.seed,
-                    num_transforms=aug_config.num_transforms,
-                )
-            )
-            transformation_pipeline.add_transformer(aug_transformer)
-            if verbose:
-                typer.echo(
-                    f"   Added AugmentationTransformer (num_transforms: {aug_config.num_transforms})"
-                )
+@app.command()
+def bulk_import_datasets(
+    config_file: str = typer.Option(..., "--config", "-c", help="Path to YAML config file (YAML only)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    num_workers: int = typer.Option(4, "--num-workers", "-n", help="Number of workers to use for bulk import"),
+):
+    """Bulk import multiple datasets from all files in a directory.
 
-        # Add tiling transformer
-        if config.transformations.enable_tiling and config.transformations.tiling:
-            tiling_config = config.transformations.tiling
-            tiling_transformer = TilingTransformer(
-                config=TilingConfig(
-                    tile_size=tiling_config.tile_size,
-                    stride=tiling_config.stride,
-                    min_visibility=tiling_config.min_visibility,
-                    max_negative_tiles_in_negative_image=tiling_config.max_negative_tiles_in_negative_image,
-                    negative_positive_ratio=tiling_config.negative_positive_ratio,
-                    dark_threshold=tiling_config.dark_threshold,
-                )
-            )
-            transformation_pipeline.add_transformer(tiling_transformer)
-            if verbose:
-                typer.echo(
-                    f"   Added TilingTransformer (tile_size: {tiling_config.tile_size}, stride: {tiling_config.stride})"
-                )
+    The config YAML should contain:
+      source_path: path/to/directory  # directory containing dataset files
+      source_format: yolo  # or coco, ls
+      ... (other config fields)
 
-    # Execute import
+    Each file in the directory will be imported as a dataset, with the dataset name derived from the filename (without extension).
+    """
+    import os
+    if not (config_file.endswith('.yaml') or config_file.endswith('.yml')):
+        typer.echo("❌ Only YAML config files are supported for bulk import. Please provide a .yaml or .yml file.")
+        raise typer.Exit(1)
     try:
-        if verbose:
-            typer.echo(f"🔧 Creating data pipeline...")
-            typer.echo(f"   Root: {config.root}")
-            typer.echo(f"   Split: {config.split_name}")
-            typer.echo(f"   DVC enabled: {config.enable_dvc}")
-            if transformation_pipeline:
-                typer.echo(f"   Transformers: {len(transformation_pipeline)}")
-
-        pipeline = DataPipeline(
-            root=config.root,
-            split_name=config.split_name,
-            enable_dvc=config.enable_dvc,
-            transformation_pipeline=transformation_pipeline,
-        )
-
-        if verbose:
-            typer.echo(f"📥 Importing dataset...")
-            typer.echo(f"   Source: {config.source_path}")
-            typer.echo(f"   Format: {config.source_format}")
-            typer.echo(f"   Name: {config.dataset_name}")
-            typer.echo(f"   Mode: {config.processing_mode}")
-
-        result = pipeline.import_dataset(
-            source_path=config.source_path,
-            source_format=config.source_format,
-            dataset_name=config.dataset_name,
-            processing_mode=config.processing_mode,
-            track_with_dvc=config.track_with_dvc,
-            bbox_tolerance=config.bbox_tolerance,
-            roi_config=roi_config,
-            dotenv_path=config.dotenv_path,
-            ls_xml_config=config.ls_xml_config,
-            ls_parse_config=config.ls_parse_config,
-        )
-
-        if result["success"]:
-            typer.echo(f"✅ Successfully imported dataset '{config.dataset_name}'")
-            if verbose:
-                typer.echo(f"   Dataset info: {result['dataset_info_path']}")
-                typer.echo(f"   Framework paths: {result['framework_paths']}")
-                typer.echo(f"   Processing mode: {result['processing_mode']}")
-                typer.echo(f"   DVC tracked: {result['dvc_tracked']}")
-        else:
-            typer.echo(f"❌ Failed to import dataset: {result['error']}")
-            if "validation_errors" in result and result["validation_errors"]:
-                typer.echo("   Validation errors:")
-                for error in result["validation_errors"]:
-                    typer.echo(f"     - {error}")
-            if "hints" in result and result["hints"]:
-                typer.echo("   Hints:")
-                for hint in result["hints"]:
-                    typer.echo(f"     - {hint}")
-            raise typer.Exit(1)
-
-    except ValidationError as e:
-        typer.echo(f"❌ Configuration validation error:")
-        for error in e.errors():
-            typer.echo(f"   {error['loc'][0]}: {error['msg']}")
-        raise typer.Exit(1)
+        config = BulkImportDatasetConfig.from_yaml(config_file)
     except Exception as e:
-        typer.echo(f"❌ Import failed: {str(e)}")
-        if verbose:
-            typer.echo(f"   Traceback: {traceback.format_exc()}")
+        typer.echo(f"❌ Failed to load YAML config file: {traceback.format_exc()}")
         raise typer.Exit(1)
+
+    # Validate directory
+    if not os.path.isdir(config.source_path):
+        typer.echo(f"❌ source_path must be a directory: {config.source_path}")
+        raise typer.Exit(1)
+    # List files in directory (ignore hidden files)
+    files = [f for f in os.listdir(config.source_path) if os.path.isfile(os.path.join(config.source_path, f)) and not f.startswith('.')]
+    if not files:
+        typer.echo(f"❌ No files found in directory: {config.source_path}")
+        raise typer.Exit(1)
+    source_paths = [os.path.join(config.source_path, f) for f in files]
+    dataset_names = [Path(f).stem.replace(" ", "").replace(",", "-").lower() for f in files]
+    formats = [config.source_format] * len(source_paths)
+
+    # Convert config to dict for pickling
+    config_dict = config.model_dump()
+    args_list = [
+        (i, src, name, fmt, config_dict, verbose)
+        for i, (src, name, fmt) in enumerate(zip(source_paths, dataset_names, formats))
+    ]
+
+    results = [None] * len(source_paths)
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        future_to_idx = {
+            executor.submit(import_one_worker, args): i
+            for i, args in enumerate(args_list)
+        }
+        for future in as_completed(future_to_idx):
+            i, name, success, msg = future.result()
+            results[i] = success
+            if msg:
+                typer.echo(msg)
+            elif success:
+                typer.echo(f"✅ Import finished for '{name}' [{i+1}/{len(source_paths)}]")
+            else:
+                typer.echo(f"❌ Import failed for '{name}' [{i+1}/{len(source_paths)}]")
+    typer.echo(f"\nBulk import complete. {sum(results)}/{len(results)} succeeded.")
 
 
 @app.command()
