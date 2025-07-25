@@ -19,15 +19,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .config import ROOT, AugmentationConfig, ROIConfig, TilingConfig
-from .filters.filter_config import (
-    ClusteringFilterConfig,
-    FeatureExtractorConfig,
-    HardSampleMiningConfig,
-    QualityFilterConfig,
-)
-from .filters.filter_config import (
-    FilterConfig as FilterConfigModel,
-)
+
 from .logging_config import setup_logging
 
 setup_logging()
@@ -361,7 +353,6 @@ class ImportConfig(BaseModel):
     min_visibility: float = 0.1
     max_negative_tiles: int = 3
     negative_positive_ratio: float = 1.0
-    filter_config: Optional[FilterConfigModel] = None
 
 
 __version__ = "0.1.0"

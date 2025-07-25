@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import ROIConfig
-from ..filters.filter_pipeline import FilterPipeline
 from ..logging_config import get_logger
 from ..transformations.transformation_pipeline import TransformationPipeline
 from .data_manager import DataManager
@@ -36,7 +35,7 @@ class DataPipeline:
         split_name: str,
         transformation_pipeline: Optional[TransformationPipeline] = None,
         enable_dvc: bool = True,
-        filter_pipeline: Optional[FilterPipeline] = None,
+        filter_pipeline = None,
     ):
         """
         Initialize the data pipeline.
@@ -87,6 +86,7 @@ class DataPipeline:
         dotenv_path: Optional[str] = None,
         ls_xml_config: Optional[str] = None,
         ls_parse_config: bool = False,
+        copy_fallback: bool = False,
     ) -> Dict[str, Any]:
         """
         Import dataset with enhanced transformation-storage integration.
@@ -142,11 +142,6 @@ class DataPipeline:
                     "hints": [],
                 }
 
-            # Apply filtering to training split if filter_pipeline is provided
-            if self.filter_pipeline and self.split_name == "train":
-                self.logger.info("Applying filter pipeline to training data...")
-                split_data["train"] = self.filter_pipeline.filter(split_data["train"])
-                self.logger.info("Filtering complete.")
 
             if roi_config:
                 self.framework_data_manager.create_roi_format(
