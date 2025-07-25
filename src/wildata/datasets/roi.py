@@ -98,7 +98,12 @@ class ROIDataset(Dataset):
             class_id = label_info["class_id"]
             if int(class_id) in self._class_mapping.keys():
                 updated_roi_labels.append(label_info)
-
+        
+        # updated roi_labels
+        if self.load_as_single_class:
+            for label_info in updated_roi_labels:
+                label_info["class_id"] = self._multi_class_single_class_mapping[label_info["class_id"]]
+        
         logger.info(
             f"Loaded {len(updated_roi_labels)}/{len(self.roi_labels)} ROI samples for dataset:{dataset_name}; split:{split}."
         )
@@ -108,7 +113,7 @@ class ROIDataset(Dataset):
 
         if resample_function:
             self.roi_labels = resample_function(self.roi_labels)
-
+    
     @property
     def class_mapping(
         self,
@@ -160,8 +165,6 @@ class ROIDataset(Dataset):
     def get_label(self, idx) -> int:
         label_info = self.roi_labels[idx]
         label = label_info["class_id"]
-        if self.load_as_single_class:
-            label = self._multi_class_single_class_mapping[label]
         return label
 
     def get_image(self, idx: int) -> torch.Tensor:
