@@ -32,6 +32,7 @@ from .transformations import (
     TilingTransformer,
     TransformationPipeline,
 )
+from .visualization import FiftyOneManager
 
 
 class ROIConfigCLI(BaseModel):
@@ -853,6 +854,36 @@ def export_dataset(
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
+
+
+@app.command()
+def visualize_classification(
+    dataset_name: str = typer.Argument(..., help="Name for the FiftyOne dataset"),
+    root_data_directory: Optional[str] = typer.Option(None, "--root", help="Root data directory for classification dataset"),
+    load_as_single_class: Optional[bool] = typer.Option(False, "--single-class", help="Load as single class (True/False)"),
+    background_class_name: Optional[str] = typer.Option("background", "--background-class", help="Background class name"),
+    single_class_name: Optional[str] = typer.Option("wildlife", "--single-class-name", help="Single class name"),
+    keep_classes: Optional[str] = typer.Option(None, "--keep-classes", help="Comma-separated list of classes to keep"),
+    discard_classes: Optional[str] = typer.Option(None, "--discard-classes", help="Comma-separated list of classes to discard"),
+    split: str = typer.Option("train", "--split", help="Dataset split (train/val/test)"),
+):
+    """Visualize a classification dataset in FiftyOne (wraps import_classification_data)."""
+    # Parse keep/discard classes if provided
+    keep_classes_list = keep_classes.split(",") if keep_classes else None
+    discard_classes_list = discard_classes.split(",") if discard_classes else None
+    
+    mgr = FiftyOneManager()
+    mgr.import_classification_data(
+        root_data_directory=root_data_directory,
+        dataset_name=dataset_name,
+        load_as_single_class=load_as_single_class,
+        background_class_name=background_class_name,
+        single_class_name=single_class_name,
+        keep_classes=keep_classes_list,
+        discard_classes=discard_classes_list,
+        split=split,
+    )
+    typer.echo(f"✅ Visualization launched in FiftyOne for dataset '{dataset_name}' (split: {split})")
 
 
 @app.command()

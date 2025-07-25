@@ -6,7 +6,6 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 from PIL import Image
-from sympy.printing.pytorch import torch
 from torch.utils.data import ConcatDataset, Dataset
 from torchvision.transforms.v2 import Compose, PILToTensor, ToDtype
 from torchvision.transforms.v2 import functional as F
