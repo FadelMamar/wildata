@@ -582,7 +582,6 @@ def import_one_worker(args):
             processing_mode=config_dict['processing_mode'],
             track_with_dvc=config_dict['track_with_dvc'],
             bbox_tolerance=config_dict['bbox_tolerance'],
-            dotenv_path=config_dict['dotenv_path'],
             ls_xml_config=config_dict['ls_xml_config'],
             ls_parse_config=config_dict['ls_parse_config'],
             roi_config=config_dict['roi_config'],
@@ -595,7 +594,7 @@ def import_one_worker(args):
         msg = f"❌ Configuration validation error for '{name}':\n" + "\n".join(f"   {error['loc'][0]}: {error['msg']}" for error in e.errors())
         return (i, name, False, msg)
     except Exception as e:
-        msg = f"❌ Unexpected error for '{name}': {str(e)}"
+        msg = f"❌ Unexpected error for '{name}': {str(traceback.format_exc())}"
         if verbose:
             msg += f"\n   Traceback: {traceback.format_exc()}"
         return (i, name, False, msg)
