@@ -1,0 +1,14 @@
+source_path: D:/PhD/Data per camp/Exported annotations and labels/Dry season - Rep 1/train/coco-format/Dry season - Kapiri - Camp 2, rep 1.json
+source_format: coco
+dataset_name: dry-season-kapiri-camp-2-rep-1
+root: D:/PhD/workspace/data
+split_name: train
+bbox_tolerance: 5
+roi_config:
+  random_roi_count: 1
+  roi_box_size: 128
+  min_roi_size: 32
+  dark_threshold: 0.5
+  background_class: "background"
+  save_format: "jpg"
+  quality: 95
