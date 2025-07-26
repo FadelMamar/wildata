@@ -2,12 +2,12 @@
 # Usage: wildata import-dataset --config import-config-example.yaml
 
 # Required parameters
-source_path: "D:/workspace/data/project-4-at-2025-07-14-10-55-95d5eea7.json"
-source_format: "ls"  # or "yolo" "coco" "ls"
-dataset_name: "demo"
+source_path: D:/PhD/Data per camp/Exported annotations and labels/Dry season - Rep 1/train/coco-format/Dry season - Kapiri - Camp 2, rep 1.json
+source_format: "coco"  # or "yolo" "coco" "ls"
+dataset_name: dry-season-kapiri-camp-2-rep-1
 
 # Pipeline configuration
-root: "D:/workspace/data/demo-dataset"
+root: D:/PhD/workspace/data
 split_name: "train"  # train, val, or test
 enable_dvc: false
 
@@ -17,11 +17,12 @@ track_with_dvc: false
 bbox_tolerance: 5
 
 # Label Studio options (optional)
-dotenv_path: "D:/workspace/repos/wildata/.env"  # "path/to/.env"
-ls_xml_config: "D:/workspace/repos/wildata/configs/label_studio_config.xml"  # "path/to/label_studio_config.xml"
+dotenv_path: ".env"  # "path/to/.env"
+ls_xml_config: "configs/label_studio_config.xml"  # "path/to/label_studio_config.xml"
 ls_parse_config: false
 
 # ROI configuration (optional)
+disable_roi: False # optional
 roi_config:
   random_roi_count: 2
   roi_box_size: 128
@@ -30,6 +31,7 @@ roi_config:
   background_class: "background"
   save_format: "jpg"
   quality: 95
+
 
 # Transformation pipeline configuration (optional)
 transformations:

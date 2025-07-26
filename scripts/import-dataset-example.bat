@@ -2,10 +2,10 @@
 REM Example: Import a dataset using the WildTrain CLI with a YAML config file
 
 REM Set the path to your config file (edit as needed)
-set CONFIG_FILE=D:\workspace\repos\wildata\configs\import-config-example.yaml
+set CONFIG_FILE=configs\import-config-example.yaml
 
 REM Run the import command using only the config file
-uv run python -m wildata import-dataset --config %CONFIG_FILE%
+call uv run wildata import-dataset --config %CONFIG_FILE%
 
 REM Run the import command with CLI overrides (e.g., override dataset_name)
 ::uv run python -m wildata import-dataset --config %CONFIG_FILE% --dataset-name my_overridden_dataset

@@ -1,4 +1,4 @@
-source_path: D:/PhD/Data per camp/Exported annotations and labels/Dry season - Rep 1/train/coco-format/Dry season - Kapiri - Camp 2, rep 1.json
+source_path: D:\PhD\Data per camp\Exported annotations and labels\Dry season - Rep 1\train\coco-format
 source_format: coco
 dataset_name: dry-season-kapiri-camp-2-rep-1
 root: D:/PhD/workspace/data

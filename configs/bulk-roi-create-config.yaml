@@ -1,13 +1,15 @@
-source_path: D:\PhD\Data per camp\Exported annotations and labels\Dry season - Rep 1\train\coco-format
-source_format: coco
+source_path: D:\PhD\Data per camp\Exported annotations and labels\Wet season - Rep 3
+source_format: ls
 root: D:/PhD/workspace/data
-split_name: train
+split_name: val
+ls_xml_config: D:\PhD\workspace\wildata\configs\label_studio_config.xml
+ls_parse_config: false
 bbox_tolerance: 5
 roi_config:
   random_roi_count: 1
   roi_box_size: 128
   min_roi_size: 32
-  dark_threshold: 0.5
+  dark_threshold: 0.7
   background_class: "background"
   save_format: "jpg"
   quality: 95

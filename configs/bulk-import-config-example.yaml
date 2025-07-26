@@ -2,12 +2,12 @@
 # Usage: wildata import-dataset --config import-config-example.yaml
 
 # Required parameters
-source_path: D:\PhD\Data per camp\Exported annotations and labels\Dry season - Rep 1\train\coco-format
+source_path: D:\PhD\Data per camp\Exported annotations and labels\Dry season - Rep 2\train\coco-format
 source_format: "coco"  # or "yolo" "coco" "ls"
 
 # Pipeline configuration
 root: D:/PhD/workspace/data
-split_name: "train"  # train, val, or test
+split_name: train  # train, val, or test
 enable_dvc: false
 
 # Processing options
@@ -21,7 +21,7 @@ ls_xml_config: "configs/label_studio_config.xml"  # "path/to/label_studio_config
 ls_parse_config: false
 
 # ROI configuration (optional)
-disable_roi: False # optional
+disable_roi: true # optional
 roi_config:
   random_roi_count: 2
   roi_box_size: 128
@@ -52,11 +52,11 @@ transformations:
     seed: 41
     num_transforms: 2
   
-  enable_tiling: false
+  enable_tiling: true
   tiling:
-    tile_size: 512
-    stride: 416
-    min_visibility: 0.1
-    max_negative_tiles_in_negative_image: 3
+    tile_size: 800
+    stride: 640
+    min_visibility: 0.7
+    max_negative_tiles_in_negative_image: 2
     negative_positive_ratio: 1.0
-    dark_threshold: 0.5 
+    dark_threshold: 0.7 
