@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, ItemsView, List, Optional, Union
 
@@ -39,7 +41,7 @@ class FiftyOneManager:
             config: Optional configuration override
         """
         self.dataset_name = "demo-dataset"
-        self.dataset: fo.Dataset = None
+        self.dataset: Optional[fo.Dataset] = None
         self.persistent = persistent
 
         self.prediction_field = {
@@ -126,32 +128,41 @@ class FiftyOneManager:
 
         print(f"len(samples): {len(samples)}")
 
-        self.dataset.add_samples(samples)
-        self.save_dataset()
+        if self.dataset is not None:
+            self.dataset.add_samples(samples)
+            self.save_dataset()
+        else:
+            logger.error("Dataset is not initialized")
 
     def _create_detection_sample(
         self,
         image_path: str,
         image_data: np.ndarray,
         detections: sv.Detections,
-        split: Optional[str] = None,
+        class_mapping: dict[int, str],
+        split: str,
     ):
         """Create a FiftyOne sample for detection."""
         sample = fo.Sample(
-            filepath=str(image_path),
+            filepath=Path(image_path).resolve().as_posix(),
         )
+        if image_data is None:
+            return sample
+
         assert image_data.shape[2] == 3, "Image must be RGB and HWC"
 
         def to_fo_detection(detections: sv.Detections):
             result = []
             for i, box in enumerate(detections.xyxy):
-                box[:, [0, 2]] = box[:, [0, 2]] / image_data.shape[1]
-                box[:, [1, 3]] = box[:, [1, 3]] / image_data.shape[0]
+                box = box.copy().astype(np.float32)
+                box[[0, 2]] /= image_data.shape[1]
+                box[[1, 3]] /= image_data.shape[0]
+                box[[2, 3]] -= box[[0, 1]]
+                # print(f"box: {box}")
                 result.append(
                     fo.Detection(
-                        label=detections.class_id[i],
+                        label=class_mapping[int(detections.class_id[i])],
                         bounding_box=box,
-                        confidence=detections.confidence[i],
                     )
                 )
             return result
@@ -159,9 +170,10 @@ class FiftyOneManager:
         if split is not None:
             sample["split"] = split
 
-        sample[self.ground_truth_field["detection"]] = fo.Detections(
-            detections=to_fo_detection(detections)
-        )
+        if len(detections.xyxy) > 0:
+            sample[self.ground_truth_field["detection"]] = fo.Detections(
+                detections=to_fo_detection(detections)
+            )
 
         return sample
 
@@ -172,16 +184,33 @@ class FiftyOneManager:
         self.dataset_name = f"{dataset_name}-{split}"
         self._ensure_dataset_initialized()
 
-        dataset = load_detection_dataset(root_data_directory, dataset_name, split)
+        dataset, class_mapping = load_detection_dataset(
+            root_data_directory, dataset_name, split
+        )
         samples = []
-        for file_path, image_data, detections in dataset:
-            sample = self._create_detection_sample(
-                file_path, image_data, detections, split
-            )
-            samples.append(sample)
 
-        self.dataset.add_samples(samples)
-        self.save_dataset()
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(
+                    self._create_detection_sample,
+                    file_path,
+                    image_data,
+                    detections,
+                    class_mapping,
+                    split,
+                )
+                for file_path, image_data, detections in dataset
+            ]
+
+            for future in tqdm(futures, desc="Importing detection data"):
+                sample = future.result()
+                samples.append(sample)
+
+        if self.dataset is not None:
+            self.dataset.add_samples(samples)
+            self.save_dataset()
+        else:
+            logger.error("Dataset is not initialized")
 
     def send_to_labelstudio(
         self,

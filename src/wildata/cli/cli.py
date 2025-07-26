@@ -40,6 +40,12 @@ app = typer.Typer(
 
 
 @app.command()
+def version():
+    """Show version information."""
+    typer.echo(f"wildata version {__version__}")
+
+
+@app.command()
 def import_dataset(
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to YAML config file"
@@ -502,9 +508,25 @@ def visualize_classification(
 
 
 @app.command()
-def version():
-    """Show version information."""
-    typer.echo(f"wildata version {__version__}")
+def visualize_detection(
+    dataset_name: str = typer.Argument(..., help="Name for the FiftyOne dataset"),
+    root_data_directory: str = typer.Option(
+        ..., "--root", help="Root data directory for detection dataset"
+    ),
+    split: str = typer.Option(
+        "train", "--split", help="Dataset split (train/val/test)"
+    ),
+):
+    """Visualize a detection dataset in FiftyOne (wraps import_detection_data)."""
+    mgr = FiftyOneManager()
+    mgr.import_detection_data(
+        root_data_directory=root_data_directory,
+        dataset_name=dataset_name,
+        split=split,
+    )
+    typer.echo(
+        f"✅ Visualization launched in FiftyOne for detection dataset '{dataset_name}' (split: {split})"
+    )
 
 
 if __name__ == "__main__":
