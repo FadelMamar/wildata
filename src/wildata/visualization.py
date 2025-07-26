@@ -13,10 +13,14 @@ from pathlib import Path
 from typing import Any, Dict, ItemsView, List, Optional, Union
 
 import fiftyone as fo
+import numpy as np
+import supervision as sv
 from dotenv import load_dotenv
-from tqdm import tqdm
 from omegaconf import OmegaConf
-from .datasets.roi import ROIDataset, ConcatDataset
+from tqdm import tqdm
+
+from .datasets.detection import load_detection_dataset
+from .datasets.roi import ConcatDataset, ROIDataset
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +42,14 @@ class FiftyOneManager:
         self.dataset: fo.Dataset = None
         self.persistent = persistent
 
-        self.prediction_field = "detections"
+        self.prediction_field = {
+            "detection": "det_predictions",
+            "classification": "class_predictions",
+        }
+        self.ground_truth_field = {
+            "detection": "det_ground_truth",
+            "classification": "class_ground_truth",
+        }
 
     def _init_dataset(self):
         """Initialize or load the FiftyOne dataset."""
@@ -53,33 +64,45 @@ class FiftyOneManager:
         """Ensure dataset is initialized before operations."""
         if self.dataset is None:
             self._init_dataset()
-    
 
-    def _create_classification_sample(self, image_path: str, label: int, class_mapping: dict[int, str], split: Optional[str] = None):
+    def _create_classification_sample(
+        self,
+        image_path: str,
+        label: int,
+        class_mapping: dict[int, str],
+        split: Optional[str] = None,
+    ):
         """Create a FiftyOne sample for classification."""
         class_name = class_mapping[label] if label in class_mapping else str(label)
         sample = fo.Sample(
             filepath=str(image_path),
-            ground_truth=fo.Classification(label=class_name)
         )
+
+        sample[self.ground_truth_field["classification"]] = fo.Classification(
+            label=class_name
+        )
+
         if split is not None:
             sample["split"] = split
         return sample
-    
-    def import_classification_data(self, root_data_directory:str, 
-                                        dataset_name: str,
-                                        load_as_single_class: Optional[bool] = None, 
-                                        background_class_name: Optional[str] = None, 
-                                        single_class_name: Optional[str] = None, 
-                                        keep_classes: Optional[list[str]] = None, 
-                                        discard_classes: Optional[list[str]] = None, 
-                                        split: str = "train"):
+
+    def import_classification_data(
+        self,
+        root_data_directory: str,
+        dataset_name: str,
+        load_as_single_class: bool = False,
+        background_class_name: str = "background",
+        single_class_name: str = "wildlife",
+        keep_classes: Optional[list[str]] = None,
+        discard_classes: Optional[list[str]] = None,
+        split: str = "train",
+    ):
         """User-facing API: Load and import a classification dataset for visualization."""
 
         self.dataset_name = f"{dataset_name}-{split}"
 
         self._ensure_dataset_initialized()
-        
+
         dataset = ROIDataset(
             dataset_name=dataset_name,
             split=split,
@@ -96,17 +119,76 @@ class FiftyOneManager:
         for i in range(len(dataset)):
             image_path = dataset.get_image_path(i)
             label = dataset.get_label(i)
-            sample = self._create_classification_sample(image_path, label, class_mapping, split)
+            sample = self._create_classification_sample(
+                image_path, label, class_mapping, split
+            )
             samples.append(sample)
 
         print(f"len(samples): {len(samples)}")
 
         self.dataset.add_samples(samples)
         self.save_dataset()
-        
- 
+
+    def _create_detection_sample(
+        self,
+        image_path: str,
+        image_data: np.ndarray,
+        detections: sv.Detections,
+        split: Optional[str] = None,
+    ):
+        """Create a FiftyOne sample for detection."""
+        sample = fo.Sample(
+            filepath=str(image_path),
+        )
+        assert image_data.shape[2] == 3, "Image must be RGB and HWC"
+
+        def to_fo_detection(detections: sv.Detections):
+            result = []
+            for i, box in enumerate(detections.xyxy):
+                box[:, [0, 2]] = box[:, [0, 2]] / image_data.shape[1]
+                box[:, [1, 3]] = box[:, [1, 3]] / image_data.shape[0]
+                result.append(
+                    fo.Detection(
+                        label=detections.class_id[i],
+                        bounding_box=box,
+                        confidence=detections.confidence[i],
+                    )
+                )
+            return result
+
+        if split is not None:
+            sample["split"] = split
+
+        sample[self.ground_truth_field["detection"]] = fo.Detections(
+            detections=to_fo_detection(detections)
+        )
+
+        return sample
+
+    def import_detection_data(
+        self, root_data_directory: str, dataset_name: str, split: str = "train"
+    ):
+        """User-facing API: Load and import a detection dataset for visualization."""
+        self.dataset_name = f"{dataset_name}-{split}"
+        self._ensure_dataset_initialized()
+
+        dataset = load_detection_dataset(root_data_directory, dataset_name, split)
+        samples = []
+        for file_path, image_data, detections in dataset:
+            sample = self._create_detection_sample(
+                file_path, image_data, detections, split
+            )
+            samples.append(sample)
+
+        self.dataset.add_samples(samples)
+        self.save_dataset()
+
     def send_to_labelstudio(
-        self, annot_key: str,label_map: dict, dotenv_path: Optional[str] = None,label_type="detections"
+        self,
+        annot_key: str,
+        label_map: dict,
+        dotenv_path: Optional[str] = None,
+        label_type="detections",
     ):
         """Launch the FiftyOne annotation app."""
         if dotenv_path is not None:
@@ -128,7 +210,7 @@ class FiftyOneManager:
         except Exception:
             logger.error(f"Error exporting to LabelStudio: {traceback.format_exc()}")
             raise
-     
+
     def save_dataset(self):
         """Save the dataset to disk."""
 

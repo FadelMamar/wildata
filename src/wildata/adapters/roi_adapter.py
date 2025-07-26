@@ -159,7 +159,7 @@ class ROIAdapter(BaseAdapter):
             "rois_from_random": 0,
         }
 
-        for image in tqdm(images, desc="Converting COCO to ROI"):
+        for image in tqdm(images, desc="Mining ROIs"):
             image_id = image["id"]
 
             # Get annotations for this image
@@ -225,8 +225,11 @@ class ROIAdapter(BaseAdapter):
         self._save_statistics(roi_data["statistics"], labels_dir)
 
         # Save ROI images
-        self.draw_original_bboxes = draw_original_bboxes
-        image_paths = self._save_roi_images(roi_data["roi_images"], output_images_dir)
+        image_paths = self._save_roi_images(
+            roi_data["roi_images"],
+            output_images_dir,
+            draw_original_bboxes=draw_original_bboxes,
+        )
 
         # Save ROI labels as JSON
         self._save_roi_labels_json(roi_data["roi_labels"], labels_dir, image_paths)
@@ -503,7 +506,10 @@ class ROIAdapter(BaseAdapter):
         return cropped_img
 
     def _save_roi_images(
-        self, roi_images: List[Dict], output_dir: Union[Path, str]
+        self,
+        roi_images: List[Dict],
+        output_dir: Union[Path, str],
+        draw_original_bboxes: bool = False,
     ) -> List[str]:
         """Save ROI images to disk."""
 
@@ -516,9 +522,7 @@ class ROIAdapter(BaseAdapter):
                 cropped_img = self.crop_image(
                     roi_info["original_image_path"],
                     roi_info["bbox"],
-                    roi_info.get("original_bbox")
-                    if self.draw_original_bboxes
-                    else None,
+                    roi_info.get("original_bbox") if draw_original_bboxes else None,
                 )
                 if not self.is_image_dark(cropped_img):
                     if cropped_img.size != (self.roi_box_size, self.roi_box_size):

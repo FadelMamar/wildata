@@ -35,7 +35,7 @@ class ROIDataset(Dataset):
         self,
         dataset_name: str,
         split: str,
-        root_data_directory: Path,
+        root_data_directory: Path | str,
         transform: Optional[Callable] = None,
         load_as_single_class: bool = False,
         background_class_name: str = "background",
@@ -52,7 +52,7 @@ class ROIDataset(Dataset):
     ):
         self.dataset_name = dataset_name
         self.split = split
-        self.path_manager = PathManager(root_data_directory)
+        self.path_manager = PathManager(Path(root_data_directory))
         self.transform = transform
 
         self.load_as_single_class = load_as_single_class
@@ -98,23 +98,25 @@ class ROIDataset(Dataset):
             class_id = label_info["class_id"]
             if int(class_id) in self._class_mapping.keys():
                 updated_roi_labels.append(label_info)
-        
+
         # updated roi_labels
         if self.load_as_single_class:
             for label_info in updated_roi_labels:
-                label_info["class_id"] = self._multi_class_single_class_mapping[label_info["class_id"]]
-        
+                label_info["class_id"] = self._multi_class_single_class_mapping[
+                    label_info["class_id"]
+                ]
+
         self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
 
         if resample_function:
             updated_roi_labels = resample_function(updated_roi_labels)
-        
+
         logger.info(
             f"Loaded {len(updated_roi_labels)}/{len(self.roi_labels)} ROI samples for dataset:{dataset_name}; split:{split}."
         )
 
         self.roi_labels = updated_roi_labels
-    
+
     @property
     def class_mapping(
         self,
@@ -274,7 +276,7 @@ def load_all_splits_concatenated(
     keep_classes: Optional[list[str]] = None,
     discard_classes: Optional[list[str]] = None,
     resample_function: Optional[Callable] = None,
-    ) -> Dict[str, ConcatDataset] | Dict[str, ROIDataset]:
+) -> Dict[str, ConcatDataset] | Dict[str, ROIDataset]:
     """
     Load and concatenate all available ROI datasets for each split.
     Returns a dictionary mapping split names to ConcatDataset objects.
