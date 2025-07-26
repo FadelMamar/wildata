@@ -39,7 +39,9 @@ def main():
     framework_data_manager.create_roi_format(dataset_name=dataset_name,
                                                 coco_data=split_coco_data[split],
                                                 split=split,
-                                                roi_config=roi_config)
+                                                roi_config=roi_config,
+                                                draw_original_bboxes=True,
+                                                )
         
     
     print(f"Saved ROI data to {ROOT}")

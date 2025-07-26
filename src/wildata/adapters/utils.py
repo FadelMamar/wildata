@@ -1,9 +1,13 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
+from functools import partial
+from pathlib import Path
 
 import pandas as pd
 import piexif
 from PIL import Image
+from tqdm import tqdm
 
 
 def decimal_to_dms(decimal_degree):
@@ -142,10 +146,9 @@ class ExifGPSManager:
 
     def update_folder_from_csv(
         self,
-        image_folder,
-        csv_path,
-        inplace=False,
-        output_dir=None,
+        image_folder: str,
+        csv_path: str,
+        output_dir: str,
         filename_col="filename",
         lat_col="latitude",
         lon_col="longitude",
@@ -157,20 +160,25 @@ class ExifGPSManager:
         If inplace is False, images are written to output_dir (preserving filenames).
         """
         df = pd.read_csv(csv_path)
-        for _, row in df.iterrows():
-            filename = row[filename_col]
-            lat = float(row[lat_col])
-            lon = float(row[lon_col])
-            alt = (
-                float(row[alt_col])
-                if alt_col in row and not pd.isnull(row[alt_col])
-                else None
-            )
-            img_path = os.path.join(image_folder, filename)
-            if inplace:
-                self.add_gps_to_image_inplace(img_path, lat, lon, alt)
-            else:
-                out_dir = output_dir if output_dir is not None else image_folder
-                os.makedirs(out_dir, exist_ok=True)
-                output_path = os.path.join(out_dir, filename)
-                self.add_gps_to_image(img_path, output_path, lat, lon, alt)
+
+        def image_info():
+            for _, row in df.iterrows():
+                filename = row[filename_col]
+                lat = float(row[lat_col])
+                lon = float(row[lon_col])
+                alt = (
+                    float(row[alt_col])
+                    if alt_col in row and not pd.isnull(row[alt_col])
+                    else None
+                )
+                yield filename, lat, lon, alt
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        func = partial(
+            self.add_gps_to_image, output_dir=output_dir, image_folder=image_folder
+        )
+        num_images = len(df)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            for _ in tqdm(executor.map(func, image_info()), total=num_images):
+                pass

@@ -31,6 +31,7 @@ dependencies = [
     "label-studio-converter>=0.0.59",
     "pydantic",
     "piexif>=1.1.3",
+    "supervision>=0.26.1",
 ]
 
 [project.scripts]

@@ -2,32 +2,15 @@
 Command-line interface for the WildTrain data pipeline using Typer.
 """
 
-import ast
-import datetime
-import json
-import os
-import shutil
-import sys
-import tempfile
 import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import typer
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .config import ROOT, AugmentationConfig, ROIConfig, TilingConfig
-from .filters.filter_config import (
-    ClusteringFilterConfig,
-    FeatureExtractorConfig,
-    HardSampleMiningConfig,
-    QualityFilterConfig,
-)
-from .filters.filter_config import (
-    FilterConfig as FilterConfigModel,
-)
 from .logging_config import setup_logging
 
 setup_logging()
@@ -361,7 +344,6 @@ class ImportConfig(BaseModel):
     min_visibility: float = 0.1
     max_negative_tiles: int = 3
     negative_positive_ratio: float = 1.0
-    filter_config: Optional[FilterConfigModel] = None
 
 
 __version__ = "0.1.0"
@@ -632,7 +614,6 @@ def import_dataset(
             split_name=config.split_name,
             enable_dvc=config.enable_dvc,
             transformation_pipeline=transformation_pipeline,
-            filter_pipeline=None,
         )
 
         if verbose:

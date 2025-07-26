@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import albumentations as A
 import cv2
 import numpy as np
+import supervision as sv
 from PIL import Image
 from tqdm import tqdm
 
@@ -200,6 +201,7 @@ class ROIAdapter(BaseAdapter):
         roi_data: Dict[str, Any],
         output_labels_dir: Union[str, Path],
         output_images_dir: Union[str, Path],
+        draw_original_bboxes: bool = False,
     ) -> None:
         """
         Save the ROI-formatted data to the output directory.
@@ -223,6 +225,7 @@ class ROIAdapter(BaseAdapter):
         self._save_statistics(roi_data["statistics"], labels_dir)
 
         # Save ROI images
+        self.draw_original_bboxes = draw_original_bboxes
         image_paths = self._save_roi_images(roi_data["roi_images"], output_images_dir)
 
         # Save ROI labels as JSON
@@ -421,7 +424,7 @@ class ROIAdapter(BaseAdapter):
             "original_image_path": image["file_name"],
             "original_image_id": image["id"],
             "bbox": roi_box,
-            "original_bbox": bbox,
+            "original_bbox": None,
             "width": x2 - x1,
             "height": y2 - y1,
         }
@@ -480,9 +483,21 @@ class ROIAdapter(BaseAdapter):
         ) > self.dark_threshold
 
     def crop_image(
-        self, image_path: Union[str, Path], bbox: Tuple[float, float, float, float]
+        self,
+        image_path: Union[str, Path],
+        bbox: Tuple[float, float, float, float],
+        original_bbox: Optional[Tuple[float, float, float, float]] = None,
     ) -> np.ndarray:
         with Image.open(image_path) as img:
+            if original_bbox:
+                img = sv.BoxAnnotator().annotate(
+                    scene=img.copy(),
+                    detections=sv.Detections(
+                        xyxy=np.array(original_bbox).reshape(1, 4),
+                        class_id=np.array([0]),
+                    ),
+                )
+
             cropped_img = img.crop(bbox)
             cropped_img = np.array(cropped_img)
         return cropped_img
@@ -499,7 +514,11 @@ class ROIAdapter(BaseAdapter):
             try:
                 roi_path = str(output_dir / roi_info["roi_filename"])
                 cropped_img = self.crop_image(
-                    roi_info["original_image_path"], roi_info["bbox"]
+                    roi_info["original_image_path"],
+                    roi_info["bbox"],
+                    roi_info.get("original_bbox")
+                    if self.draw_original_bboxes
+                    else None,
                 )
                 if not self.is_image_dark(cropped_img):
                     if cropped_img.size != (self.roi_box_size, self.roi_box_size):
@@ -531,7 +550,7 @@ class ROIAdapter(BaseAdapter):
                     paths.append(path)
         if failures > 0:
             logger.warning(f"Failed to save {failures}/{len(roi_images)} ROI images")
-            logger.warning(set(errors))
+            logger.warning(f"Errors: {set(errors)}")
         return paths
 
     def _save_roi_labels_json(

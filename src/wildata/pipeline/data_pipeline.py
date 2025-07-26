@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import ROIConfig
-from ..filters.filter_pipeline import FilterPipeline
 from ..logging_config import get_logger
 from ..transformations.transformation_pipeline import TransformationPipeline
 from .data_manager import DataManager
@@ -23,7 +22,6 @@ class DataPipeline:
 
     This class orchestrates the complete data workflow:
     - Import datasets from various formats (COCO, YOLO)
-    - Optionally filter training data using a FilterPipeline
     - Apply transformations and augmentations
     - Store data in COCO format with split-based organization
     - Export to framework-specific formats
@@ -36,7 +34,6 @@ class DataPipeline:
         split_name: str,
         transformation_pipeline: Optional[TransformationPipeline] = None,
         enable_dvc: bool = True,
-        filter_pipeline: Optional[FilterPipeline] = None,
     ):
         """
         Initialize the data pipeline.
@@ -45,7 +42,6 @@ class DataPipeline:
             root: Root directory for data storage
             transformation_pipeline: Optional transformation pipeline
             enable_dvc: Whether to enable DVC integration
-            filter_pipeline: Optional filter pipeline for training data
         """
         self.root = Path(root)
         self.logger = get_logger(self.__class__.__name__)
@@ -71,9 +67,6 @@ class DataPipeline:
 
         # Initialize framework data manager
         self.framework_data_manager = FrameworkDataManager(self.path_manager)
-
-        # Initialize filter pipeline (optional)
-        self.filter_pipeline = filter_pipeline
 
     def import_dataset(
         self,
@@ -141,12 +134,6 @@ class DataPipeline:
                     "validation_errors": [],
                     "hints": [],
                 }
-
-            # Apply filtering to training split if filter_pipeline is provided
-            if self.filter_pipeline and self.split_name == "train":
-                self.logger.info("Applying filter pipeline to training data...")
-                split_data["train"] = self.filter_pipeline.filter(split_data["train"])
-                self.logger.info("Filtering complete.")
 
             if roi_config:
                 self.framework_data_manager.create_roi_format(

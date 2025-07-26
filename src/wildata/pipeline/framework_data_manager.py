@@ -164,6 +164,7 @@ class FrameworkDataManager:
         roi_config: ROIConfig,
         coco_data: Dict[str, Any],
         split: str,
+        draw_original_bboxes: bool = False,
     ) -> str:
         """Create ROI format for a dataset."""
         # Ensure directories exist
@@ -199,6 +200,7 @@ class FrameworkDataManager:
                 roi_data,
                 output_labels_dir=labels_dir,
                 output_images_dir=images_dir,
+                draw_original_bboxes=draw_original_bboxes,
             )
 
         except Exception as e:

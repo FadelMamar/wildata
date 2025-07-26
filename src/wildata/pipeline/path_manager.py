@@ -37,7 +37,7 @@ class PathManager:
     def _setup_directory_structure(self):
         """Setup the standard directory structure."""
         # Data storage (COCO-First design)
-        self.data_dir = self.project_root
+        self.data_dir = self.project_root / "datasets"
 
         # Framework formats
         self.framework_formats_dir = self.project_root / "framework_formats"
