@@ -6,7 +6,6 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import torch
 from PIL import Image
-from sympy.printing.pytorch import torch
 from torch.utils.data import ConcatDataset, Dataset
 from torchvision.transforms.v2 import Compose, PILToTensor, ToDtype
 from torchvision.transforms.v2 import functional as F
@@ -49,6 +48,7 @@ class ROIDataset(Dataset):
             "other",
             "label",
         ],
+        resample_function: Optional[Callable] = None,
     ):
         self.dataset_name = dataset_name
         self.split = split
@@ -98,14 +98,23 @@ class ROIDataset(Dataset):
             class_id = label_info["class_id"]
             if int(class_id) in self._class_mapping.keys():
                 updated_roi_labels.append(label_info)
+        
+        # updated roi_labels
+        if self.load_as_single_class:
+            for label_info in updated_roi_labels:
+                label_info["class_id"] = self._multi_class_single_class_mapping[label_info["class_id"]]
+        
+        self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
 
+        if resample_function:
+            updated_roi_labels = resample_function(updated_roi_labels)
+        
         logger.info(
             f"Loaded {len(updated_roi_labels)}/{len(self.roi_labels)} ROI samples for dataset:{dataset_name}; split:{split}."
         )
+
         self.roi_labels = updated_roi_labels
-
-        self.load_image = Compose([PILToTensor(), ToDtype(torch.float32, scale=True)])
-
+    
     @property
     def class_mapping(
         self,
@@ -119,7 +128,7 @@ class ROIDataset(Dataset):
             self._class_mapping = {
                 k: v for k, v in self._class_mapping.items() if v in self.keep_classes
             }
-            logger.info(
+            logger.debug(
                 f"Keeping classes: {self.keep_classes}. Updated class mapping: {self._class_mapping}"
             )
         elif self.discard_classes:
@@ -128,7 +137,7 @@ class ROIDataset(Dataset):
                 for k, v in self._class_mapping.items()
                 if v not in self.discard_classes
             }
-            logger.info(
+            logger.debug(
                 f"Discarding classes: {self.discard_classes}. Updated class mapping: {self._class_mapping}"
             )
 
@@ -157,8 +166,6 @@ class ROIDataset(Dataset):
     def get_label(self, idx) -> int:
         label_info = self.roi_labels[idx]
         label = label_info["class_id"]
-        if self.load_as_single_class:
-            label = self._multi_class_single_class_mapping[label]
         return label
 
     def get_image(self, idx: int) -> torch.Tensor:
@@ -190,6 +197,7 @@ def load_all_roi_datasets(
     single_class_name: str = "wildlife",
     keep_classes: Optional[list[str]] = None,
     discard_classes: Optional[list[str]] = None,
+    resample_function: Optional[Callable] = None,
 ) -> dict[str, ROIDataset] | ConcatDataset:
     """
     Load all available ROI datasets for a given split.
@@ -228,6 +236,7 @@ def load_all_roi_datasets(
                 single_class_name=single_class_name,
                 keep_classes=keep_classes,
                 discard_classes=discard_classes,
+                resample_function=resample_function,
             )
             roi_datasets[dataset_name] = ds
         except Exception as e:
@@ -264,7 +273,8 @@ def load_all_splits_concatenated(
     single_class_name: str = "wildlife",
     keep_classes: Optional[list[str]] = None,
     discard_classes: Optional[list[str]] = None,
-) -> Dict[str, ConcatDataset] | Dict[str, ROIDataset]:
+    resample_function: Optional[Callable] = None,
+    ) -> Dict[str, ConcatDataset] | Dict[str, ROIDataset]:
     """
     Load and concatenate all available ROI datasets for each split.
     Returns a dictionary mapping split names to ConcatDataset objects.
@@ -283,6 +293,7 @@ def load_all_splits_concatenated(
             single_class_name=single_class_name,
             keep_classes=keep_classes,
             discard_classes=discard_classes,
+            resample_function=resample_function,
         )
         if not concat_dataset:
             continue

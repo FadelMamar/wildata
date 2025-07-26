@@ -80,6 +80,7 @@ class DataPipeline:
         dotenv_path: Optional[str] = None,
         ls_xml_config: Optional[str] = None,
         ls_parse_config: bool = False,
+        copy_fallback: bool = False,
     ) -> Dict[str, Any]:
         """
         Import dataset with enhanced transformation-storage integration.

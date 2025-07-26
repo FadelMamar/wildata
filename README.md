@@ -31,9 +31,12 @@ A comprehensive data pipeline for managing object detection datasets with suppor
 
 ### Basic Installation
 ```bash
-uv venv --python 3.11
-uv sync
+uv venv --python 3.10
+# If CUDA 
+uv pip install torch==2.6.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 uv pip install -e .
+# else
+uv sync
 ```
 
 ### With DVC Support
