@@ -302,7 +302,7 @@ class ROIAdapter(BaseAdapter):
                 "original_image_path": image_path,
                 "original_image_id": image["id"],
                 "bbox": [x1, y1, x2, y2],
-                "original_bbox": bbox,
+                "original_bbox": [x, y, x + w, y + h],
                 "width": x2 - x1,
                 "height": y2 - y1,
             }
@@ -493,7 +493,7 @@ class ROIAdapter(BaseAdapter):
     ) -> np.ndarray:
         with Image.open(image_path) as img:
             if original_bbox:
-                img = sv.BoxAnnotator().annotate(
+                img = sv.TriangleAnnotator().annotate(
                     scene=img.copy(),
                     detections=sv.Detections(
                         xyxy=np.array(original_bbox).reshape(1, 4),
@@ -554,7 +554,7 @@ class ROIAdapter(BaseAdapter):
                     paths.append(path)
         if failures > 0:
             logger.warning(f"Failed to save {failures}/{len(roi_images)} ROI images")
-            logger.warning(f"Errors: {set(errors)}")
+            logger.warning(f"Reasons: {set(errors)}")
         return paths
 
     def _save_roi_labels_json(
