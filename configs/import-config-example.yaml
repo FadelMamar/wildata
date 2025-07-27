@@ -2,12 +2,12 @@
 # Usage: wildata import-dataset --config import-config-example.yaml
 
 # Required parameters
-source_path: D:/PhD/Data per camp/Exported annotations and labels/Dry season - Rep 1/train/coco-format/Dry season - Kapiri - Camp 2, rep 1.json
+source_path: D:\workspace\savmap\coco\annotations\train.json
 source_format: "coco"  # or "yolo" "coco" "ls"
-dataset_name: dry-season-kapiri-camp-2-rep-1
+dataset_name: savmap
 
 # Pipeline configuration
-root: D:/PhD/workspace/data
+root: D:\workspace\data\demo-dataset
 split_name: "train"  # train, val, or test
 enable_dvc: false
 
@@ -22,7 +22,7 @@ ls_xml_config: "configs/label_studio_config.xml"  # "path/to/label_studio_config
 ls_parse_config: false
 
 # ROI configuration (optional)
-disable_roi: False # optional
+disable_roi: true # optional
 roi_config:
   random_roi_count: 2
   roi_box_size: 128
