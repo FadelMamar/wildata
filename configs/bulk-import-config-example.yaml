@@ -2,11 +2,14 @@
 # Usage: wildata import-dataset --config import-config-example.yaml
 
 # Required parameters
-source_path: D:\PhD\Data per camp\Exported annotations and labels\Dry season - Rep 2\train\coco-format
+source_paths: 
+  - D:\PhD\Data per camp\Exported annotations and labels\Wet season - Rep 3
+
+
 source_format: "coco"  # or "yolo" "coco" "ls"
 
 # Pipeline configuration
-root: D:/PhD/workspace/data
+root: D:\workspace\data\demo-dataset
 split_name: train  # train, val, or test
 enable_dvc: false
 
@@ -52,7 +55,7 @@ transformations:
     seed: 41
     num_transforms: 2
   
-  enable_tiling: true
+  enable_tiling: false
   tiling:
     tile_size: 800
     stride: 640

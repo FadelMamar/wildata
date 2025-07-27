@@ -57,7 +57,7 @@ transformations:
   tiling:
     tile_size: 512
     stride: 416
-    min_visibility: 0.1
+    min_visibility: 0.7
     max_negative_tiles_in_negative_image: 3
     negative_positive_ratio: 1.0
     dark_threshold: 0.5 

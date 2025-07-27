@@ -3,7 +3,7 @@ Configuration models for CLI commands.
 """
 
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -368,8 +368,8 @@ class ROIDatasetConfig(BaseModel):
 class BulkImportDatasetConfig(BaseModel):
     """Configuration for bulk importing datasets from a directory."""
 
-    source_path: str = Field(
-        ..., description="Directory containing source dataset files"
+    source_paths: List[str] = Field(
+        ..., description="List of directories containing source dataset files"
     )
     source_format: str = Field(..., description="Source format (coco/yolo/ls)")
     root: str = Field(default="data", description="Root directory for data storage")
@@ -404,8 +404,8 @@ class BulkImportDatasetConfig(BaseModel):
 class BulkCreateROIDatasetConfig(BaseModel):
     """Configuration for bulk creation of ROI datasets from a directory."""
 
-    source_path: str = Field(
-        ..., description="Directory containing source dataset files"
+    source_paths: List[str] = Field(
+        ..., description="List of directories containing source dataset files"
     )
     source_format: str = Field(..., description="Source format (coco/yolo)")
     root: str = Field(default="data", description="Root directory for data storage")

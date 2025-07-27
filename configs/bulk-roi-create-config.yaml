@@ -1,7 +1,12 @@
-source_path: D:\PhD\Data per camp\Exported annotations and labels\Wet season - Rep 3
+source_paths: 
+ - D:\PhD\Data per camp\Exported annotations and labels\Wet season - Rep 3
+
 source_format: ls
+
 root: D:/PhD/workspace/data
+
 split_name: val
+
 ls_xml_config: D:\PhD\workspace\wildata\configs\label_studio_config.xml
 ls_parse_config: false
 bbox_tolerance: 5

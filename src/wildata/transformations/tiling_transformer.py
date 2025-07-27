@@ -340,13 +340,6 @@ class TilingTransformer(BaseTransformer):
         super().__init__()
         self.config = config or TilingConfig()
 
-        # Temporarily lower min_visibility for debugging
-        if self.config.min_visibility > 0.1:
-            logger.warning(
-                f"Lowering min_visibility from {self.config.min_visibility} to 0.1 for debugging"
-            )
-            self.config.min_visibility = 0.1
-
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         self._validate_inputs(inputs)
         outputs = []

@@ -5,6 +5,7 @@ Command-line interface for the WildTrain data pipeline using Typer.
 import os
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -245,30 +246,33 @@ def bulk_import_datasets(
         raise typer.Exit(1)
 
     # Validate directory
-    if not os.path.isdir(config.source_path):
-        typer.echo(f"❌ source_path must be a directory: {config.source_path}")
-        raise typer.Exit(1)
-    # List files in directory (ignore hidden files)
-    files = [
-        f
-        for f in os.listdir(config.source_path)
-        if os.path.isfile(os.path.join(config.source_path, f)) and not f.startswith(".")
-    ]
+    files = []
+    for source_path in config.source_paths:
+        if not os.path.isdir(source_path):
+            typer.echo(f"❌ source_path must be a directory: {source_path}")
+            raise typer.Exit(1)
+        files.extend(
+            [
+                f.resolve().as_posix()
+                for f in Path(source_path).iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+        )
+
     if not files:
-        typer.echo(f"❌ No files found in directory: {config.source_path}")
+        typer.echo(f"❌ No files found in directories: {config.source_paths}")
         raise typer.Exit(1)
-    source_paths = [os.path.join(config.source_path, f) for f in files]
     dataset_names = [create_dataset_name(f) for f in files]
-    formats = [config.source_format] * len(source_paths)
+    formats = [config.source_format] * len(files)
 
     # Convert config to dict for pickling
     config_dict = config.model_dump()
     args_list = [
         (i, src, name, fmt, config_dict, verbose)
-        for i, (src, name, fmt) in enumerate(zip(source_paths, dataset_names, formats))
+        for i, (src, name, fmt) in enumerate(zip(files, dataset_names, formats))
     ]
 
-    results = [None] * len(source_paths)
+    results = [None] * len(files)
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         future_to_idx = {
             executor.submit(import_one_worker, args): i
@@ -280,11 +284,9 @@ def bulk_import_datasets(
             if msg:
                 typer.echo(msg)
             elif success:
-                typer.echo(
-                    f"✅ Import finished for '{name}' [{i+1}/{len(source_paths)}]"
-                )
+                typer.echo(f"✅ Import finished for '{name}' [{i+1}/{len(files)}]")
             else:
-                typer.echo(f"❌ Import failed for '{name}' [{i+1}/{len(source_paths)}]")
+                typer.echo(f"❌ Import failed for '{name}' [{i+1}/{len(files)}]")
     typer.echo(f"\nBulk import complete. {sum(results)}/{len(results)} succeeded.")
 
 
@@ -349,28 +351,30 @@ def bulk_create_roi_datasets(
         raise typer.Exit(1)
 
     # Validate directory
-    if not os.path.isdir(config.source_path):
-        typer.echo(f"❌ source_path must be a directory: {config.source_path}")
-        raise typer.Exit(1)
-    # List files in directory (ignore hidden files)
-    files = [
-        f
-        for f in os.listdir(config.source_path)
-        if os.path.isfile(os.path.join(config.source_path, f)) and not f.startswith(".")
-    ]
+    files = []
+    for source_path in config.source_paths:
+        if not os.path.isdir(source_path):
+            typer.echo(f"❌ source_path must be a directory: {source_path}")
+            raise typer.Exit(1)
+        files.extend(
+            [
+                f.resolve().as_posix()
+                for f in Path(source_path).iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+        )
     if not files:
-        typer.echo(f"❌ No files found in directory: {config.source_path}")
+        typer.echo(f"❌ No files found in directories: {config.source_paths}")
         raise typer.Exit(1)
-    source_paths = [os.path.join(config.source_path, f) for f in files]
     dataset_names = [create_dataset_name(f) for f in files]
 
     config_dict = config.model_dump()
     args_list = [
         (i, src, name, config_dict, verbose)
-        for i, (src, name) in enumerate(zip(source_paths, dataset_names))
+        for i, (src, name) in enumerate(zip(files, dataset_names))
     ]
 
-    results = [None] * len(source_paths)
+    results = [None] * len(files)
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         future_to_idx = {
             executor.submit(create_roi_one_worker, args): i
@@ -383,12 +387,10 @@ def bulk_create_roi_datasets(
                 typer.echo(msg)
             elif success:
                 typer.echo(
-                    f"✅ ROI creation finished for '{name}' [{i+1}/{len(source_paths)}]"
+                    f"✅ ROI creation finished for '{name}' [{i+1}/{len(files)}]"
                 )
             else:
-                typer.echo(
-                    f"❌ ROI creation failed for '{name}' [{i+1}/{len(source_paths)}]"
-                )
+                typer.echo(f"❌ ROI creation failed for '{name}' [{i+1}/{len(files)}]")
     typer.echo(
         f"\nBulk ROI creation complete. {sum(results)}/{len(results)} succeeded."
     )
