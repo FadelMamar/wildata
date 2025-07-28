@@ -17,7 +17,7 @@ def create_roi_dataset_core(config: ROIDatasetConfig, verbose: bool = False) -> 
     """Core logic for creating ROI datasets."""
     try:
         if verbose:
-            typer.echo(f"🔧 Creating dataset...")
+            typer.echo(f"[INFO] Creating dataset...")
             typer.echo(f"   Source: {config.source_path}")
             typer.echo(f"   Format: {config.source_format}")
             typer.echo(f"   Name: {config.dataset_name}")
@@ -58,16 +58,16 @@ def create_roi_dataset_core(config: ROIDatasetConfig, verbose: bool = False) -> 
             roi_config=roi_config,
         )
         typer.echo(
-            f"✅ Successfully created ROI dataset for '{config.dataset_name}' (split: {config.split_name}) at {config.root}"
+            f"[SUCCESS] Successfully created ROI dataset for '{config.dataset_name}' (split: {config.split_name}) at {config.root}"
         )
         return True
     except ValidationError as e:
-        typer.echo(f"❌ Configuration validation error:")
+        typer.echo(f"[ERROR] Configuration validation error:")
         for error in e.errors():
             typer.echo(f"   {error['loc'][0]}: {error['msg']}")
         return False
     except Exception as e:
-        typer.echo(f"❌ Failed to create ROI dataset: {str(e)}")
+        typer.echo(f"[ERROR] Failed to create ROI dataset: {str(e)}")
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         return False

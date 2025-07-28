@@ -11,6 +11,7 @@ from typing import Optional
 import typer
 from pydantic import ValidationError
 
+from ..adapters.utils import ExifGPSManager
 from ..logging_config import setup_logging
 from ..pipeline import DataPipeline
 from ..visualization import FiftyOneManager
@@ -20,6 +21,7 @@ from .models import (
     BboxClippingConfigCLI,
     BulkCreateROIDatasetConfig,
     BulkImportDatasetConfig,
+    ExifGPSUpdateConfig,
     ImportDatasetConfig,
     ROIDatasetConfig,
     TilingConfigCLI,
@@ -123,13 +125,14 @@ def import_dataset(
         # If config is given, do not allow any other required args
         if any([source_path, source_format, dataset_name]):
             typer.echo(
-                "❌ If --config is provided, do not provide other arguments.", err=True
+                "[ERROR] If --config is provided, do not provide other arguments.",
+                err=True,
             )
             raise typer.Exit(1)
         try:
             config = ImportDatasetConfig.from_yaml(config_file)
         except Exception as e:
-            typer.echo(f"❌ Failed to load config file: {traceback.format_exc()}")
+            typer.echo(f"[ERROR] Failed to load config file: {traceback.format_exc()}")
             raise typer.Exit(1)
     else:
         # If config is not given, require all required args
@@ -141,7 +144,9 @@ def import_dataset(
         if not dataset_name:
             missing.append("dataset_name")
         if missing:
-            typer.echo(f"❌ Missing required arguments: {', '.join(missing)}", err=True)
+            typer.echo(
+                f"[ERROR] Missing required arguments: {', '.join(missing)}", err=True
+            )
             raise typer.Exit(1)
         # Create transformation config from command-line arguments
         transformation_config = None
@@ -207,7 +212,7 @@ def import_dataset(
         try:
             config = ImportDatasetConfig(**config_data)
         except ValidationError as e:
-            typer.echo(f"❌ Configuration validation error:")
+            typer.echo(f"[ERROR] Configuration validation error:")
             for error in e.errors():
                 typer.echo(f"   {error['loc'][0]}: {error['msg']}")
             raise typer.Exit(1)
@@ -236,20 +241,20 @@ def bulk_import_datasets(
     """
     if not (config_file.endswith(".yaml") or config_file.endswith(".yml")):
         typer.echo(
-            "❌ Only YAML config files are supported for bulk import. Please provide a .yaml or .yml file."
+            "[ERROR] Only YAML config files are supported for bulk import. Please provide a .yaml or .yml file."
         )
         raise typer.Exit(1)
     try:
         config = BulkImportDatasetConfig.from_yaml(config_file)
     except Exception as e:
-        typer.echo(f"❌ Failed to load YAML config file: {traceback.format_exc()}")
+        typer.echo(f"[ERROR] Failed to load YAML config file: {traceback.format_exc()}")
         raise typer.Exit(1)
 
     # Validate directory
     files = []
     for source_path in config.source_paths:
         if not os.path.isdir(source_path):
-            typer.echo(f"❌ source_path must be a directory: {source_path}")
+            typer.echo(f"[ERROR] source_path must be a directory: {source_path}")
             raise typer.Exit(1)
         files.extend(
             [
@@ -260,7 +265,7 @@ def bulk_import_datasets(
         )
 
     if not files:
-        typer.echo(f"❌ No files found in directories: {config.source_paths}")
+        typer.echo(f"[ERROR] No files found in directories: {config.source_paths}")
         raise typer.Exit(1)
     dataset_names = [create_dataset_name(f) for f in files]
     formats = [config.source_format] * len(files)
@@ -284,9 +289,11 @@ def bulk_import_datasets(
             if msg:
                 typer.echo(msg)
             elif success:
-                typer.echo(f"✅ Import finished for '{name}' [{i+1}/{len(files)}]")
+                typer.echo(
+                    f"[SUCCESS] Import finished for '{name}' [{i+1}/{len(files)}]"
+                )
             else:
-                typer.echo(f"❌ Import failed for '{name}' [{i+1}/{len(files)}]")
+                typer.echo(f"[ERROR] Import failed for '{name}' [{i+1}/{len(files)}]")
     typer.echo(f"\nBulk import complete. {sum(results)}/{len(results)} succeeded.")
 
 
@@ -302,7 +309,7 @@ def create_roi_dataset(
     try:
         config = ROIDatasetConfig.from_yaml(config_file)
     except Exception as e:
-        typer.echo(f"❌ Failed to load config file: {traceback.format_exc()}")
+        typer.echo(f"[ERROR] Failed to load config file: {traceback.format_exc()}")
         raise typer.Exit(1)
 
     create_roi_dataset_core(config, verbose)
@@ -341,20 +348,20 @@ def bulk_create_roi_datasets(
     """
     if not (config_file.endswith(".yaml") or config_file.endswith(".yml")):
         typer.echo(
-            "❌ Only YAML config files are supported for bulk ROI creation. Please provide a .yaml or .yml file."
+            "[ERROR] Only YAML config files are supported for bulk ROI creation. Please provide a .yaml or .yml file."
         )
         raise typer.Exit(1)
     try:
         config = BulkCreateROIDatasetConfig.from_yaml(config_file)
     except Exception as e:
-        typer.echo(f"❌ Failed to load YAML config file: {traceback.format_exc()}")
+        typer.echo(f"[ERROR] Failed to load YAML config file: {traceback.format_exc()}")
         raise typer.Exit(1)
 
     # Validate directory
     files = []
     for source_path in config.source_paths:
         if not os.path.isdir(source_path):
-            typer.echo(f"❌ source_path must be a directory: {source_path}")
+            typer.echo(f"[ERROR] source_path must be a directory: {source_path}")
             raise typer.Exit(1)
         files.extend(
             [
@@ -364,7 +371,7 @@ def bulk_create_roi_datasets(
             ]
         )
     if not files:
-        typer.echo(f"❌ No files found in directories: {config.source_paths}")
+        typer.echo(f"[ERROR] No files found in directories: {config.source_paths}")
         raise typer.Exit(1)
     dataset_names = [create_dataset_name(f) for f in files]
 
@@ -387,10 +394,12 @@ def bulk_create_roi_datasets(
                 typer.echo(msg)
             elif success:
                 typer.echo(
-                    f"✅ ROI creation finished for '{name}' [{i+1}/{len(files)}]"
+                    f"[SUCCESS] ROI creation finished for '{name}' [{i+1}/{len(files)}]"
                 )
             else:
-                typer.echo(f"❌ ROI creation failed for '{name}' [{i+1}/{len(files)}]")
+                typer.echo(
+                    f"[ERROR] ROI creation failed for '{name}' [{i+1}/{len(files)}]"
+                )
     typer.echo(
         f"\nBulk ROI creation complete. {sum(results)}/{len(results)} succeeded."
     )
@@ -529,6 +538,120 @@ def visualize_detection(
     typer.echo(
         f"✅ Visualization launched in FiftyOne for detection dataset '{dataset_name}' (split: {split})"
     )
+
+
+@app.command()
+def update_gps_from_csv(
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to YAML config file"
+    ),
+    image_folder: Optional[str] = typer.Option(
+        None, "--image-folder", "-i", help="Path to folder containing images"
+    ),
+    csv_path: Optional[str] = typer.Option(
+        None, "--csv", help="Path to CSV file with GPS coordinates"
+    ),
+    output_dir: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output directory for updated images"
+    ),
+    skip_rows: Optional[int] = typer.Option(
+        None, "--skip-rows", help="Number of rows to skip in CSV"
+    ),
+    filename_col: Optional[str] = typer.Option(
+        None, "--filename-col", help="CSV column name for filenames"
+    ),
+    lat_col: Optional[str] = typer.Option(
+        None, "--lat-col", help="CSV column name for latitude"
+    ),
+    lon_col: Optional[str] = typer.Option(
+        None, "--lon-col", help="CSV column name for longitude"
+    ),
+    alt_col: Optional[str] = typer.Option(
+        None, "--alt-col", help="CSV column name for altitude"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+):
+    """Update EXIF GPS data for images using coordinates from a CSV file."""
+
+    # Enforce mutual exclusivity
+    if config_file:
+        # If config is given, do not allow any other required args
+        if any([image_folder, csv_path, output_dir]):
+            typer.echo(
+                "❌ If --config is provided, do not provide other arguments.", err=True
+            )
+            raise typer.Exit(1)
+        try:
+            config = ExifGPSUpdateConfig.from_yaml(config_file)
+        except Exception as e:
+            typer.echo(f"❌ Failed to load config file: {traceback.format_exc()}")
+            raise typer.Exit(1)
+    else:
+        # If config is not given, require all required args
+        missing = []
+        if not image_folder:
+            missing.append("image_folder")
+        if not csv_path:
+            missing.append("csv_path")
+        if not output_dir:
+            missing.append("output_dir")
+        if missing:
+            typer.echo(f"❌ Missing required arguments: {', '.join(missing)}", err=True)
+            raise typer.Exit(1)
+
+        # Create config from command-line arguments
+        config_data = {
+            "image_folder": image_folder,
+            "csv_path": csv_path,
+            "output_dir": output_dir,
+            "skip_rows": skip_rows if skip_rows is not None else 0,
+            "filename_col": filename_col if filename_col is not None else "filename",
+            "lat_col": lat_col if lat_col is not None else "latitude",
+            "lon_col": lon_col if lon_col is not None else "longitude",
+            "alt_col": alt_col if alt_col is not None else "altitude",
+        }
+        try:
+            config = ExifGPSUpdateConfig(**config_data)
+        except ValidationError as e:
+            typer.echo(f"❌ Configuration validation error:")
+            for error in e.errors():
+                typer.echo(f"   {error['loc'][0]}: {error['msg']}")
+            raise typer.Exit(1)
+
+    try:
+        if verbose:
+            typer.echo(f"📁 Image folder: {config.image_folder}")
+            typer.echo(f"📄 CSV file: {config.csv_path}")
+            typer.echo(f"📂 Output directory: {config.output_dir}")
+            typer.echo(f"⏭️  Skip rows: {config.skip_rows}")
+            typer.echo(f"📝 Filename column: {config.filename_col}")
+            typer.echo(f"📍 Latitude column: {config.lat_col}")
+            typer.echo(f"📍 Longitude column: {config.lon_col}")
+            typer.echo(f"📍 Altitude column: {config.alt_col}")
+
+        # Initialize ExifGPSManager and update GPS data
+        gps_manager = ExifGPSManager()
+        gps_manager.update_folder_from_csv(
+            image_folder=config.image_folder,
+            csv_path=config.csv_path,
+            output_dir=config.output_dir,
+            skip_rows=config.skip_rows,
+            filename_col=config.filename_col,
+            lat_col=config.lat_col,
+            lon_col=config.lon_col,
+            alt_col=config.alt_col,
+        )
+
+        typer.echo(
+            f"✅ Successfully updated GPS data for images in '{config.image_folder}'"
+        )
+        typer.echo(f"📁 Updated images saved to: {config.output_dir}")
+
+    except Exception as e:
+        typer.echo(f"❌ Failed to update GPS data: {str(e)}")
+        if verbose:
+            typer.echo(f"   Traceback: {traceback.format_exc()}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

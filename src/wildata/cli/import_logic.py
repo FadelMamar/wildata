@@ -38,7 +38,7 @@ def _import_dataset_core(config: ImportDatasetConfig, verbose: bool = False) -> 
     transformation_pipeline = None
     if config.transformations:
         if verbose:
-            typer.echo(f"🔧 Creating transformation pipeline...")
+            typer.echo(f"[INFO] Creating transformation pipeline...")
 
         transformation_pipeline = TransformationPipeline()
 
@@ -105,7 +105,7 @@ def _import_dataset_core(config: ImportDatasetConfig, verbose: bool = False) -> 
     # Execute import
     try:
         if verbose:
-            typer.echo(f"🔧 Creating data pipeline...")
+            typer.echo(f"[INFO] Creating data pipeline...")
             typer.echo(f"   Root: {config.root}")
             typer.echo(f"   Split: {config.split_name}")
             typer.echo(f"   DVC enabled: {config.enable_dvc}")
@@ -120,7 +120,7 @@ def _import_dataset_core(config: ImportDatasetConfig, verbose: bool = False) -> 
         )
 
         if verbose:
-            typer.echo(f"📥 Importing dataset...")
+            typer.echo(f"[INFO] Importing dataset...")
             typer.echo(f"   Source: {config.source_path}")
             typer.echo(f"   Format: {config.source_format}")
             typer.echo(f"   Name: {config.dataset_name}")
@@ -140,14 +140,16 @@ def _import_dataset_core(config: ImportDatasetConfig, verbose: bool = False) -> 
         )
 
         if result["success"]:
-            typer.echo(f"✅ Successfully imported dataset '{config.dataset_name}'")
+            typer.echo(
+                f"[SUCCESS] Successfully imported dataset '{config.dataset_name}'"
+            )
             if verbose:
                 typer.echo(f"   Dataset info: {result['dataset_info_path']}")
                 typer.echo(f"   Framework paths: {result['framework_paths']}")
                 typer.echo(f"   Processing mode: {result['processing_mode']}")
                 typer.echo(f"   DVC tracked: {result['dvc_tracked']}")
         else:
-            typer.echo(f"❌ Failed to import dataset: {result['error']}")
+            typer.echo(f"[ERROR] Failed to import dataset: {result['error']}")
             if "validation_errors" in result and result["validation_errors"]:
                 typer.echo("   Validation errors:")
                 for error in result["validation_errors"]:
@@ -159,12 +161,12 @@ def _import_dataset_core(config: ImportDatasetConfig, verbose: bool = False) -> 
             return False
         return True
     except ValidationError as e:
-        typer.echo(f"❌ Configuration validation error:")
+        typer.echo(f"[ERROR] Configuration validation error:")
         for error in e.errors():
             typer.echo(f"   {error['loc'][0]}: {error['msg']}")
         return False
     except Exception as e:
-        typer.echo(f"❌ Import failed: {str(e)}")
+        typer.echo(f"[ERROR] Import failed: {str(e)}")
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         return False
@@ -199,12 +201,12 @@ def import_one_worker(args) -> tuple:
         success = _import_dataset_core(single_config, verbose)
         return (i, name, success, None)
     except ValidationError as e:
-        msg = f"❌ Configuration validation error for '{name}':\n" + "\n".join(
+        msg = f"[ERROR] Configuration validation error for '{name}':\n" + "\n".join(
             f"   {error['loc'][0]}: {error['msg']}" for error in e.errors()
         )
         return (i, name, False, msg)
     except Exception as e:
-        msg = f"❌ Unexpected error for '{name}': {str(traceback.format_exc())}"
+        msg = f"[ERROR] Unexpected error for '{name}': {str(traceback.format_exc())}"
         if verbose:
             msg += f"\n   Traceback: {traceback.format_exc()}"
         return (i, name, False, msg)

@@ -445,3 +445,61 @@ class ImportConfig(BaseModel):
     min_visibility: float = 0.1
     max_negative_tiles: int = 3
     negative_positive_ratio: float = 1.0
+
+
+class ExifGPSUpdateConfig(BaseModel):
+    """Configuration for updating EXIF GPS data from CSV."""
+
+    image_folder: str = Field(..., description="Path to folder containing images")
+    csv_path: str = Field(..., description="Path to CSV file with GPS coordinates")
+    output_dir: str = Field(..., description="Output directory for updated images")
+    skip_rows: int = Field(default=0, description="Number of rows to skip in CSV")
+    filename_col: str = Field(
+        default="filename", description="CSV column name for filenames"
+    )
+    lat_col: str = Field(default="latitude", description="CSV column name for latitude")
+    lon_col: str = Field(
+        default="longitude", description="CSV column name for longitude"
+    )
+    alt_col: str = Field(default="altitude", description="CSV column name for altitude")
+
+    @field_validator("image_folder", mode="before")
+    @classmethod
+    def validate_image_folder(cls, v: Any) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"Image folder does not exist: {v}")
+        return str(v)
+
+    @field_validator("csv_path", mode="before")
+    @classmethod
+    def validate_csv_path(cls, v: Any) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"CSV file does not exist: {v}")
+        return str(v)
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def validate_output_dir(cls, v: Any) -> str:
+        return str(v)
+
+    @field_validator("skip_rows", mode="before")
+    @classmethod
+    def validate_skip_rows(cls, v: Any) -> int:
+        v = int(v)
+        if v < 0:
+            raise ValueError("skip_rows must be non-negative")
+        return v
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "ExifGPSUpdateConfig":
+        """Load configuration from YAML file."""
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        if data is None:
+            raise ValueError("YAML file is empty or invalid")
+        return cls(**data)
+
+    def to_yaml(self, path: str) -> None:
+        """Save configuration to YAML file."""
+        with open(path, "w") as f:
+            yaml.dump(self.model_dump(), f, default_flow_style=False)
