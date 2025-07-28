@@ -305,6 +305,84 @@ EOF
 wildata import-dataset --config import_config.yaml --verbose
 ```
 
+### 8. Update GPS from CSV
+
+Update EXIF GPS data for images using coordinates from a CSV file.
+
+#### Basic Usage
+
+```bash
+# Using command line arguments
+wildata update-gps-from-csv \
+    --image-folder "path/to/images" \
+    --csv "path/to/gps_coordinates.csv" \
+    --output "path/to/output"
+
+# Using configuration file
+wildata update-gps-from-csv --config configs/gps-update-config-example.yaml
+```
+
+#### Advanced Options
+
+```bash
+wildata update-gps-from-csv \
+    --image-folder "path/to/images" \
+    --csv "path/to/gps_coordinates.csv" \
+    --output "path/to/output" \
+    --skip-rows 1 \
+    --filename-col "image_name" \
+    --lat-col "lat" \
+    --lon-col "lon" \
+    --alt-col "elevation" \
+    --verbose
+```
+
+#### Using Configuration File
+
+Create a YAML configuration file (see `configs/gps-update-config-example.yaml` for an example):
+
+```yaml
+image_folder: "path/to/images"
+csv_path: "path/to/gps_coordinates.csv"
+output_dir: "path/to/output"
+skip_rows: 0
+filename_col: "filename"
+lat_col: "latitude"
+lon_col: "longitude"
+alt_col: "altitude"
+```
+
+#### CSV Format
+
+The CSV file should contain the following columns:
+- `filename`: Name of the image file (e.g., "image1.jpg")
+- `latitude`: Latitude coordinate in decimal degrees
+- `longitude`: Longitude coordinate in decimal degrees
+- `altitude`: Altitude in meters (optional)
+
+Example CSV:
+```csv
+filename,latitude,longitude,altitude
+image1.jpg,40.7128,-74.0060,10.5
+image2.jpg,40.7589,-73.9851,15.2
+image3.jpg,40.7505,-73.9934,8.1
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `--config, -c` | str | ❌ | None | Path to YAML config file |
+| `--image-folder, -i` | str | ✅ | - | Path to folder containing images |
+| `--csv` | str | ✅ | - | Path to CSV file with GPS coordinates |
+| `--output, -o` | str | ✅ | - | Output directory for updated images |
+| `--skip-rows` | int | ❌ | 0 | Number of rows to skip in CSV |
+| `--filename-col` | str | ❌ | "filename" | CSV column name for filenames |
+| `--lat-col` | str | ❌ | "latitude" | CSV column name for latitude |
+| `--lon-col` | str | ❌ | "longitude" | CSV column name for longitude |
+| `--alt-col` | str | ❌ | "altitude" | CSV column name for altitude |
+| `--verbose, -v` | bool | ❌ | False | Verbose output |
+
 ## Testing
 
 Run the test script to verify CLI functionality:
