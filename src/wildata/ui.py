@@ -97,11 +97,15 @@ def main():
 
         # Import Dataset
         st.subheader("Import Dataset")
-        with st.expander("Import Dataset", expanded=True):
+        with st.expander("", expanded=True):
             st.markdown("**Using YAML Config File**")
-            config_path = st.text_input("Config File Path", key="import_config")
+            config_path = st.text_input(
+                "Config File Path",
+                key="import_config",
+                value="configs/import-config-example.yaml",
+            )
             if config_path and st.button("Import Dataset (Config)"):
-                with st.expander("Import Dataset (Config)", expanded=True):
+                with st.expander("logs", expanded=True):
                     placeholder = st.empty()
                     success, output = run_cli_command(
                         "import-dataset",
@@ -143,23 +147,24 @@ def main():
         # Bulk Import Datasets
         st.subheader("Bulk Import Datasets")
         with st.expander("Bulk Import Datasets", expanded=True):
-            uploaded_bulk_config = st.file_uploader(
-                "Upload YAML config file for bulk import",
-                type=["yaml", "yml"],
-                key="bulk_import_config",
+            config_path_bulk = st.text_input(
+                "Config File Path",
+                key="import_config_bulk",
+                value="configs/bulk-import-config-example.yaml",
             )
-
-            if uploaded_bulk_config:
-                config_path = save_uploaded_file(uploaded_bulk_config)
-                if config_path and st.button("Bulk Import Datasets"):
+            button = st.button("Bulk Import Datasets")
+            if config_path_bulk and button:
+                with st.expander("logs", expanded=True):
+                    placeholder = st.empty()
+                    command = "bulk-import-datasets"
+                    args = ["--config", config_path_bulk, "--verbose"]
                     success, output = run_cli_command(
-                        "bulk-import-datasets", ["--config", config_path, "--verbose"]
+                        command, args, log_placeholder=placeholder
                     )
-                    if success:
-                        st.success("✅ Bulk import completed successfully!")
-                    else:
-                        st.error(f"❌ Bulk import failed: {output}")
-                    os.unlink(config_path)
+                if success:
+                    st.success("✅ Bulk import completed successfully!")
+                else:
+                    st.error(f"❌ Bulk import failed: {output}")
 
     # Tab 2: ROI Operations
     with tab2:
@@ -168,45 +173,48 @@ def main():
         # Create ROI Dataset
         st.subheader("Create ROI Dataset")
         with st.expander("Create ROI Dataset", expanded=True):
-            uploaded_roi_config = st.file_uploader(
-                "Upload YAML config file for ROI creation",
-                type=["yaml", "yml"],
+            config_path_roi = st.text_input(
+                "Config File Path",
                 key="roi_config",
+                value="configs/roi-create-config.yaml",
             )
+            button_roi = st.button("Create ROI Dataset")
 
-            if uploaded_roi_config:
-                config_path = save_uploaded_file(uploaded_roi_config)
-                if config_path and st.button("Create ROI Dataset"):
+            if config_path_roi and button_roi:
+                with st.expander("logs", expanded=True):
+                    placeholder = st.empty()
+                    command = "create-roi-dataset"
+                    args = ["--config", config_path_roi, "--verbose"]
                     success, output = run_cli_command(
-                        "create-roi-dataset", ["--config", config_path, "--verbose"]
+                        command, args, log_placeholder=placeholder
                     )
-                    if success:
-                        st.success("✅ ROI dataset created successfully!")
-                    else:
-                        st.error(f"❌ ROI creation failed: {output}")
-                    os.unlink(config_path)
+                if success:
+                    st.success("✅ ROI dataset created successfully!")
+                else:
+                    st.error(f"❌ ROI creation failed: {output}")
 
         # Bulk Create ROI Datasets
         st.subheader("Bulk Create ROI Datasets")
         with st.expander("Bulk Create ROI Datasets", expanded=True):
-            uploaded_bulk_roi_config = st.file_uploader(
-                "Upload YAML config file for bulk ROI creation",
-                type=["yaml", "yml"],
+            config_path_bulk_roi = st.text_input(
+                "Config File Path",
                 key="bulk_roi_config",
+                value="configs/bulk-roi-create-config.yaml",
             )
+            button_bulk_roi = st.button("Bulk Create ROI Datasets")
 
-            if uploaded_bulk_roi_config:
-                config_path = save_uploaded_file(uploaded_bulk_roi_config)
-                if config_path and st.button("Bulk Create ROI Datasets"):
+            if config_path_bulk_roi and button_bulk_roi:
+                with st.expander("logs", expanded=True):
+                    placeholder = st.empty()
+                    command = "bulk-create-roi-datasets"
+                    args = ["--config", config_path_bulk_roi, "--verbose"]
                     success, output = run_cli_command(
-                        "bulk-create-roi-datasets",
-                        ["--config", config_path, "--verbose"],
+                        command, args, log_placeholder=placeholder
                     )
-                    if success:
-                        st.success("✅ Bulk ROI creation completed successfully!")
-                    else:
-                        st.error(f"❌ Bulk ROI creation failed: {output}")
-                    os.unlink(config_path)
+                if success:
+                    st.success("✅ Bulk ROI creation completed successfully!")
+                else:
+                    st.error(f"❌ Bulk ROI creation failed: {output}")
 
     # Tab 3: GPS Operations
     with tab3:
@@ -214,84 +222,83 @@ def main():
 
         st.subheader("Update GPS from CSV")
         with st.expander("Update GPS from CSV", expanded=True):
-            col1, col2 = st.columns(2)
+            st.markdown("**Using YAML Config File**")
+            config_path_gps = st.text_input(
+                "Config File Path",
+                key="gps_config",
+                value="configs/gps-config-example.yaml",
+            )
+            button_gps = st.button("Update GPS (Config)")
 
-            with col1:
-                st.markdown("**Using YAML Config File**")
-                uploaded_gps_config = st.file_uploader(
-                    "Upload YAML config file for GPS update",
-                    type=["yaml", "yml"],
-                    key="gps_config",
-                )
+            if config_path_gps and button_gps:
+                with st.expander("logs", expanded=True):
+                    placeholder = st.empty()
+                    command = "update-gps-from-csv"
+                    args = ["--config", config_path_gps, "--verbose"]
+                    success, output = run_cli_command(
+                        command, args, log_placeholder=placeholder
+                    )
+                if success:
+                    st.success("✅ GPS data updated successfully!")
+                else:
+                    st.error(f"❌ GPS update failed: {output}")
 
-                if uploaded_gps_config:
-                    config_path = save_uploaded_file(uploaded_gps_config)
-                    if config_path and st.button("Update GPS (Config)"):
-                        success, output = run_cli_command(
-                            "update-gps-from-csv",
-                            ["--config", config_path, "--verbose"],
-                        )
-                        if success:
-                            st.success("✅ GPS data updated successfully!")
-                        else:
-                            st.error(f"❌ GPS update failed: {output}")
-                        os.unlink(config_path)
+        st.markdown("**Using Command Line Arguments**")
+        with st.form("gps_form"):
+            image_folder = st.text_input("Image Folder Path", key="gps_image_folder")
+            csv_path = st.text_input("CSV File Path", key="gps_csv_path")
+            output_dir = st.text_input("Output Directory", key="gps_output_dir")
 
-            with col2:
-                st.markdown("**Using Command Line Arguments**")
-                image_folder = st.text_input(
-                    "Image Folder Path", key="gps_image_folder"
-                )
-                csv_path = st.text_input("CSV File Path", key="gps_csv_path")
-                output_dir = st.text_input("Output Directory", key="gps_output_dir")
+            # Optional parameters
+            skip_rows = st.number_input(
+                "Skip Rows", min_value=0, value=0, key="gps_skip_rows"
+            )
+            filename_col = st.text_input(
+                "Filename Column", value="filename", key="gps_filename_col"
+            )
+            lat_col = st.text_input(
+                "Latitude Column", value="latitude", key="gps_lat_col"
+            )
+            lon_col = st.text_input(
+                "Longitude Column", value="longitude", key="gps_lon_col"
+            )
+            alt_col = st.text_input(
+                "Altitude Column", value="altitude", key="gps_alt_col"
+            )
 
-                # Optional parameters
-                skip_rows = st.number_input(
-                    "Skip Rows", min_value=0, value=0, key="gps_skip_rows"
-                )
-                filename_col = st.text_input(
-                    "Filename Column", value="filename", key="gps_filename_col"
-                )
-                lat_col = st.text_input(
-                    "Latitude Column", value="latitude", key="gps_lat_col"
-                )
-                lon_col = st.text_input(
-                    "Longitude Column", value="longitude", key="gps_lon_col"
-                )
-                alt_col = st.text_input(
-                    "Altitude Column", value="altitude", key="gps_alt_col"
-                )
-
-                if st.button("Update GPS (CLI)"):
-                    if image_folder and csv_path and output_dir:
-                        args = [
-                            "--image-folder",
-                            image_folder,
-                            "--csv",
-                            csv_path,
-                            "--output",
-                            output_dir,
-                            "--skip-rows",
-                            str(skip_rows),
-                            "--filename-col",
-                            filename_col,
-                            "--lat-col",
-                            lat_col,
-                            "--lon-col",
-                            lon_col,
-                            "--alt-col",
-                            alt_col,
-                            "--verbose",
-                        ]
-                        success, output = run_cli_command("update-gps-from-csv", args)
-                        if success:
-                            st.success("✅ GPS data updated successfully!")
-                        else:
-                            st.error(f"❌ GPS update failed: {output}")
+            if st.form_submit_button("Update GPS (CLI)"):
+                if image_folder and csv_path and output_dir:
+                    args = [
+                        "--image-folder",
+                        image_folder,
+                        "--csv",
+                        csv_path,
+                        "--output",
+                        output_dir,
+                        "--skip-rows",
+                        str(skip_rows),
+                        "--filename-col",
+                        filename_col,
+                        "--lat-col",
+                        lat_col,
+                        "--lon-col",
+                        lon_col,
+                        "--alt-col",
+                        alt_col,
+                        "--verbose",
+                    ]
+                    placeholder = st.empty()
+                    success, output = run_cli_command(
+                        "update-gps-from-csv", args, log_placeholder=placeholder
+                    )
+                    if success:
+                        st.success("✅ GPS data updated successfully!")
                     else:
-                        st.error(
-                            "Please provide image folder, CSV path, and output directory"
-                        )
+                        st.error(f"❌ GPS update failed: {output}")
+                else:
+                    st.error(
+                        "Please provide image folder, CSV path, and output directory"
+                    )
 
     # Tab 4: Visualization
     with tab4:
@@ -317,7 +324,10 @@ def main():
                         "--split",
                         detection_split,
                     ]
-                    success, output = run_cli_command("visualize-detection", args)
+                    placeholder = st.empty()
+                    success, output = run_cli_command(
+                        "visualize-detection", args, log_placeholder=placeholder
+                    )
                     if success:
                         st.success("✅ Detection visualization launched!")
                     else:
@@ -376,7 +386,10 @@ def main():
                     if discard_classes:
                         args.extend(["--discard-classes", discard_classes])
 
-                    success, output = run_cli_command("visualize-classification", args)
+                    placeholder = st.empty()
+                    success, output = run_cli_command(
+                        "visualize-classification", args, log_placeholder=placeholder
+                    )
                     if success:
                         st.success("✅ Classification visualization launched!")
                     else:
@@ -398,7 +411,10 @@ def main():
                 if list_verbose:
                     args.append("--verbose")
 
-                success, output = run_cli_command("list-datasets", args)
+                placeholder = st.empty()
+                success, output = run_cli_command(
+                    "list-datasets", args, log_placeholder=placeholder
+                )
                 if success:
                     st.success("✅ Datasets listed successfully!")
                     st.code(output)

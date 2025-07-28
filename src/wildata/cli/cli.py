@@ -5,6 +5,7 @@ Command-line interface for the WildTrain data pipeline using Typer.
 import os
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,7 @@ import typer
 from pydantic import ValidationError
 
 from ..adapters.utils import ExifGPSManager
+from ..config import ROOT
 from ..logging_config import setup_logging
 from ..pipeline import DataPipeline
 from ..visualization import FiftyOneManager
@@ -30,8 +32,6 @@ from .models import (
 from .roi_logic import create_roi_dataset_core, create_roi_one_worker
 from .utils import create_dataset_name
 
-setup_logging()
-
 __version__ = "0.1.0"
 
 app = typer.Typer(
@@ -40,6 +40,9 @@ app = typer.Typer(
     add_completion=False,
     rich_markup_mode="rich",
 )
+
+# create logs directory if it doesn't exist
+(ROOT / "logs").mkdir(parents=True, exist_ok=True)
 
 
 @app.command()
@@ -119,6 +122,12 @@ def import_dataset(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Import a dataset from various formats into the WildData pipeline."""
+    log_file = (
+        ROOT
+        / "logs"
+        / f"import_dataset_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    )
+    setup_logging(log_file=log_file.as_posix())
 
     # Enforce mutual exclusivity
     if config_file:
@@ -239,6 +248,14 @@ def bulk_import_datasets(
 
     Each file in the directory will be imported as a dataset, with the dataset name derived from the filename (without extension).
     """
+
+    log_file = (
+        ROOT
+        / "logs"
+        / f"bulk_import_datasets_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    )
+    setup_logging(log_file=log_file.as_posix())
+
     if not (config_file.endswith(".yaml") or config_file.endswith(".yml")):
         typer.echo(
             "[ERROR] Only YAML config files are supported for bulk import. Please provide a .yaml or .yml file."
@@ -305,6 +322,13 @@ def create_roi_dataset(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Create an ROI dataset from a source dataset using a YAML config file."""
+    log_file = (
+        ROOT
+        / "logs"
+        / f"create_roi_dataset_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    )
+    setup_logging(log_file=log_file.as_posix())
+
     # Only config file is allowed
     try:
         config = ROIDatasetConfig.from_yaml(config_file)
@@ -346,6 +370,13 @@ def bulk_create_roi_datasets(
 
     Each file in the directory will be used to create an ROI dataset, with the dataset name derived from the filename (without extension).
     """
+    log_file = (
+        ROOT
+        / "logs"
+        / f"bulk_create_roi_datasets_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    )
+    setup_logging(log_file=log_file.as_posix())
+
     if not (config_file.endswith(".yaml") or config_file.endswith(".yml")):
         typer.echo(
             "[ERROR] Only YAML config files are supported for bulk ROI creation. Please provide a .yaml or .yml file."
@@ -423,14 +454,18 @@ def list_datasets(
 
         typer.echo(f"📚 Found {len(datasets)} dataset(s):")
         for dataset in datasets:
-            typer.echo(f"   • {dataset['name']}")
+            typer.echo(f"   • {dataset['dataset_name']}")
             if verbose:
-                typer.echo(f"     Created: {dataset.get('created_at', 'Unknown')}")
-                typer.echo(f"     Size: {dataset.get('size', 'Unknown')}")
-                typer.echo(f"     Format: {dataset.get('format', 'Unknown')}")
+                typer.echo(
+                    f"     Number of images: {dataset.get('total_images', 'Unknown')}"
+                )
+                typer.echo(
+                    f"     Number of annotations: {dataset.get('total_annotations', 'Unknown')}"
+                )
+                typer.echo(f"     Splits: {dataset.get('splits', 'Unknown')}")
 
     except Exception as e:
-        typer.echo(f"❌ Failed to list datasets: {str(e)}")
+        typer.echo(f"❌ Failed to list datasets: {str(traceback.format_exc())}")
         raise typer.Exit(1)
 
 
@@ -572,6 +607,12 @@ def update_gps_from_csv(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Update EXIF GPS data for images using coordinates from a CSV file."""
+    log_file = (
+        ROOT
+        / "logs"
+        / f"update_gps_from_csv_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    )
+    setup_logging(log_file=log_file.as_posix())
 
     # Enforce mutual exclusivity
     if config_file:

@@ -9,8 +9,11 @@ import typer
 from pydantic import ValidationError
 
 from ..config import ENV_FILE, ROIConfig
+from ..logging_config import get_logger
 from ..pipeline import FrameworkDataManager, Loader, PathManager
 from .models import ROIDatasetConfig
+
+logger = get_logger(__name__)
 
 
 def create_roi_dataset_core(config: ROIDatasetConfig, verbose: bool = False) -> bool:
@@ -26,6 +29,8 @@ def create_roi_dataset_core(config: ROIDatasetConfig, verbose: bool = False) -> 
             typer.echo(f"   ROI config: {config.roi_config}")
             typer.echo(f"   LS XML config: {config.ls_xml_config}")
             typer.echo(f"   LS parse config: {config.ls_parse_config}")
+
+        logger.info(f"Config: {config}")
 
         loader = Loader()
         dataset_info, split_coco_data = loader.load(
