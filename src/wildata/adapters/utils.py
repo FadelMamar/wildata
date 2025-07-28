@@ -1,5 +1,6 @@
 import os
-from concurrent.futures import ThreadPoolExecutor
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fractions import Fraction
 from functools import partial
 from pathlib import Path
@@ -149,6 +150,7 @@ class ExifGPSManager:
         image_folder: str,
         csv_path: str,
         output_dir: str,
+        skip_rows: int = 0,
         filename_col="filename",
         lat_col="latitude",
         lon_col="longitude",
@@ -159,7 +161,7 @@ class ExifGPSManager:
         CSV must have columns: filename, latitude, longitude, [altitude]
         If inplace is False, images are written to output_dir (preserving filenames).
         """
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, skiprows=skip_rows)
 
         def image_info():
             for _, row in df.iterrows():
@@ -171,14 +173,18 @@ class ExifGPSManager:
                     if alt_col in row and not pd.isnull(row[alt_col])
                     else None
                 )
-                yield filename, lat, lon, alt
+                yield os.path.join(image_folder, filename), lat, lon, alt
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        func = partial(
-            self.add_gps_to_image, output_dir=output_dir, image_folder=image_folder
-        )
         num_images = len(df)
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            for _ in tqdm(executor.map(func, image_info()), total=num_images):
-                pass
+        with tqdm(total=num_images, unit="images") as pbar:
+            for image_path, lat, lon, alt in image_info():
+                self.add_gps_to_image(
+                    image_path,
+                    os.path.join(output_dir, os.path.basename(image_path)),
+                    latitude=lat,
+                    longitude=lon,
+                    altitude=alt,
+                )
+                pbar.update(1)

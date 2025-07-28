@@ -8,6 +8,7 @@ def main():
     # Example usage: update EXIF GPS for all images in a folder using a CSV
     image_folder = r"D:\workspace\data\savmap_dataset_v2\images_splits"
     csv_path = "./path/to/your/gps_data.csv"  # Change to your CSV file
+    output_dir = "./path/to/output"
 
     # Create the manager
     manager = ExifGPSManager()
@@ -18,7 +19,8 @@ def main():
     manager.update_folder_from_csv(
         image_folder=image_folder,
         csv_path=csv_path,
-        inplace=True,  # Set to False if you want to write to new files
+        output_dir=output_dir,
+        skip_rows=0,
         filename_col="filename",
         lat_col="latitude",
         lon_col="longitude",
