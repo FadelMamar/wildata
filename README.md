@@ -100,6 +100,29 @@ wildata dvc pull
 wildata dvc push
 ```
 
+### 4. Using the Web UI
+
+WildData also provides a user-friendly Streamlit web interface:
+
+```bash
+
+# Run the UI
+streamlit run src/wildata/ui.py
+
+# Or use the provided scripts
+python scripts/run-ui.py  # Cross-platform
+scripts/run-ui.bat        # Windows
+```
+
+The UI will be available at http://localhost:8501 and provides:
+- 📥 Import & Export operations
+- 🎯 ROI dataset creation
+- 📍 GPS data updates
+- 👁️ Dataset visualization
+- 📊 Dataset management
+
+For detailed UI documentation, see [docs/ui_usage.md](docs/ui_usage.md).
+
 ## CLI Commands
 
 ### Dataset Management
