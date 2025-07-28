@@ -1,11 +1,15 @@
 import json
+import traceback
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import supervision as sv
 from supervision.dataset.core import DetectionDataset
 
+from ..logging_config import get_logger
 from ..pipeline import PathManager
+
+logger = get_logger("DETECTION_DATASET")
 
 
 def _load_data(
