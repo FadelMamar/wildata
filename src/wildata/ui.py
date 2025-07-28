@@ -11,36 +11,40 @@ from pathlib import Path
 from typing import Optional
 
 import streamlit as st
-import yaml
 
-# Add the src directory to Python path to import wildata modules
-from wildata.cli.models import (
-    BulkCreateROIDatasetConfig,
-    BulkImportDatasetConfig,
-    ExifGPSUpdateConfig,
-    ImportDatasetConfig,
-    ROIDatasetConfig,
-)
 from wildata.config import ROOT
 from wildata.pipeline import DataPipeline
 
 
-def run_cli_command(command: str, args: list) -> tuple[bool, str]:
+def run_cli_command(
+    command: str, args: list, log_placeholder: st.empty
+) -> tuple[bool, str]:
     """Run a CLI command and return success status and output."""
     try:
+        command = ["uv", "run", "wildata"] + [command] + args
         result = subprocess.Popen(
-            ["uv", "run", "wildata"] + [command] + args,
-            text=True,
+            command,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=ROOT,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            universal_newlines=True,
             env=os.environ.copy(),
+            cwd=ROOT,
         )
-        stdout, stderr = result.communicate()
-        return result.returncode == 0, stdout + stderr
+        logs = ""
+        for line in result.stdout:
+            logs += line
+            log_placeholder.code(logs)
+        return_code = result.wait()
+        return return_code == 0, logs
+
     except Exception as e:
-        return False, f"Error running command: {str(e)}"
+        error_msg = f"Error running command: {str(e)}"
+        log_placeholder.error(error_msg)
+        return False, error_msg
 
 
 def save_uploaded_file(uploaded_file) -> Optional[str]:
@@ -94,46 +98,47 @@ def main():
         # Import Dataset
         st.subheader("Import Dataset")
         with st.expander("Import Dataset", expanded=True):
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("**Using YAML Config File**")
-                config_path = st.text_input("Config File Path", key="import_config")
-
-                if config_path and st.button("Import Dataset (Config)"):
+            st.markdown("**Using YAML Config File**")
+            config_path = st.text_input("Config File Path", key="import_config")
+            if config_path and st.button("Import Dataset (Config)"):
+                with st.expander("Import Dataset (Config)", expanded=True):
+                    placeholder = st.empty()
                     success, output = run_cli_command(
-                        "import-dataset", ["--config", config_path.strip(), "--verbose"]
+                        "import-dataset",
+                        ["--config", config_path.strip(), "--verbose"],
+                        placeholder,
+                    )
+                if success:
+                    st.success("✅ Dataset imported successfully!")
+                else:
+                    st.error(f"❌ Import failed: {output}")
+
+            st.markdown("**Using Command Line Arguments**")
+            source_path = st.text_input("Source Path", key="import_source")
+            source_format = st.selectbox(
+                "Source Format", ["coco", "yolo", "ls"], key="import_format"
+            )
+            dataset_name = st.text_input("Dataset Name", key="import_name")
+            if st.button("Import Dataset (CLI)"):
+                if source_path and dataset_name:
+                    args = [
+                        source_path,
+                        "--format",
+                        source_format,
+                        "--name",
+                        dataset_name,
+                        "--verbose",
+                    ]
+                    placeholder = st.empty()
+                    success, output = run_cli_command(
+                        "import-dataset", args, placeholder
                     )
                     if success:
                         st.success("✅ Dataset imported successfully!")
                     else:
                         st.error(f"❌ Import failed: {output}")
-
-            with col2:
-                st.markdown("**Using Command Line Arguments**")
-                source_path = st.text_input("Source Path", key="import_source")
-                source_format = st.selectbox(
-                    "Source Format", ["coco", "yolo", "ls"], key="import_format"
-                )
-                dataset_name = st.text_input("Dataset Name", key="import_name")
-
-                if st.button("Import Dataset (CLI)"):
-                    if source_path and dataset_name:
-                        args = [
-                            source_path,
-                            "--format",
-                            source_format,
-                            "--name",
-                            dataset_name,
-                            "--verbose",
-                        ]
-                        success, output = run_cli_command("import-dataset", args)
-                        if success:
-                            st.success("✅ Dataset imported successfully!")
-                        else:
-                            st.error(f"❌ Import failed: {output}")
-                    else:
-                        st.error("Please provide source path and dataset name")
+                else:
+                    st.error("Please provide source path and dataset name")
 
         # Bulk Import Datasets
         st.subheader("Bulk Import Datasets")
