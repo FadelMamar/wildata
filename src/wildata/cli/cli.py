@@ -13,21 +13,23 @@ import typer
 from pydantic import ValidationError
 
 from ..adapters.utils import ExifGPSManager
-from ..config import ROOT
+from ..config import (
+    ROOT,
+    AugmentationConfig,
+    BboxClippingConfig,
+    TilingConfig,
+    TransformationConfig,
+)
 from ..logging_config import setup_logging
 from ..pipeline import DataPipeline
 from ..visualization import FiftyOneManager
 from .import_logic import _import_dataset_core, import_one_worker
 from .models import (
-    AugmentationConfigCLI,
-    BboxClippingConfigCLI,
     BulkCreateROIDatasetConfig,
     BulkImportDatasetConfig,
     ExifGPSUpdateConfig,
     ImportDatasetConfig,
     ROIDatasetConfig,
-    TilingConfigCLI,
-    TransformationConfigCLI,
 )
 from .roi_logic import create_roi_dataset_core, create_roi_one_worker
 from .utils import create_dataset_name
@@ -160,11 +162,11 @@ def import_dataset(
         # Create transformation config from command-line arguments
         transformation_config = None
         if enable_bbox_clipping or enable_augmentation or enable_tiling:
-            transformation_config = TransformationConfigCLI(
+            transformation_config = TransformationConfig(
                 enable_bbox_clipping=enable_bbox_clipping
                 if enable_bbox_clipping is not None
                 else True,
-                bbox_clipping=BboxClippingConfigCLI(
+                bbox_clipping=BboxClippingConfig(
                     tolerance=bbox_clipping_tolerance
                     if bbox_clipping_tolerance is not None
                     else 5,
@@ -177,7 +179,7 @@ def import_dataset(
                 enable_augmentation=enable_augmentation
                 if enable_augmentation is not None
                 else False,
-                augmentation=AugmentationConfigCLI(
+                augmentation=AugmentationConfig(
                     probability=augmentation_probability
                     if augmentation_probability is not None
                     else 1.0,
@@ -188,7 +190,7 @@ def import_dataset(
                 if enable_augmentation
                 else None,
                 enable_tiling=enable_tiling if enable_tiling is not None else False,
-                tiling=TilingConfigCLI(
+                tiling=TilingConfig(
                     tile_size=tile_size if tile_size is not None else 512,
                     stride=tile_stride if tile_stride is not None else 416,
                     min_visibility=min_visibility
@@ -350,24 +352,6 @@ def bulk_create_roi_datasets(
     ),
 ):
     """Bulk create ROI datasets from all files in a directory (multiprocessing).
-
-    The config YAML should contain:
-      source_path: path/to/directory  # directory containing dataset files
-      source_format: yolo  # or coco
-      root: data
-      split_name: val
-      bbox_tolerance: 5
-      ls_xml_config: null # path to Label Studio XML config file
-      ls_parse_config: false # parse Label Studio config using Server
-      roi_config:
-        random_roi_count: 1
-        roi_box_size: 128
-        min_roi_size: 32
-        dark_threshold: 0.5
-        background_class: background
-        save_format: jpg
-        quality: 95
-
     Each file in the directory will be used to create an ROI dataset, with the dataset name derived from the filename (without extension).
     """
     log_file = (

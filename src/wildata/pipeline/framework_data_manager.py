@@ -172,17 +172,7 @@ class FrameworkDataManager:
 
         try:
             # Create adapter for this split
-            adapter = ROIAdapter(
-                coco_data=coco_data,
-                random_roi_count=roi_config.random_roi_count,
-                roi_box_size=roi_config.roi_box_size,
-                dark_threshold=roi_config.dark_threshold,
-                min_roi_size=roi_config.min_roi_size,
-                roi_callback=roi_config.roi_callback,
-                background_class=roi_config.background_class,
-                save_format=roi_config.save_format,
-                quality=roi_config.quality,
-            )
+            adapter = ROIAdapter.from_config(coco_data=coco_data, config=roi_config)
             roi_data = adapter.convert()
 
             images_dir = self.path_manager.get_framework_split_image_dir(

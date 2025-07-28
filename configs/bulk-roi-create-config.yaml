@@ -10,6 +10,7 @@ split_name: val
 ls_xml_config: D:\PhD\workspace\wildata\configs\label_studio_config.xml
 ls_parse_config: false
 bbox_tolerance: 5
+draw_original_bboxes: false
 roi_config:
   random_roi_count: 1
   roi_box_size: 128

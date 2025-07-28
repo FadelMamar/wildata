@@ -14,6 +14,7 @@ import supervision as sv
 from PIL import Image
 from tqdm import tqdm
 
+from ..config import ROIConfig
 from .base_adapter import BaseAdapter
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class ROIAdapter(BaseAdapter):
         random_roi_count: int = 1,
         roi_box_size: int = 128,
         min_roi_size: int = 32,
+        sample_background: bool = True,
         background_class: str = "background",
         save_format: str = "jpg",
         quality: int = 95,
@@ -93,6 +95,7 @@ class ROIAdapter(BaseAdapter):
         self.background_class = background_class
         self.save_format = save_format
         self.quality = quality
+        self.sample_background = sample_background
         self.pad_roi = A.Compose(
             [
                 A.PadIfNeeded(
@@ -111,6 +114,27 @@ class ROIAdapter(BaseAdapter):
         self.dark_threshold = dark_threshold
 
         self.class_mapping = self.create_class_mapping()
+
+    @classmethod
+    def from_config(cls, config: ROIConfig, coco_data: Dict[str, Any]):
+        """
+        Initialize the adapter from a configuration object.
+        Args:
+            config (ROIConfig): Configuration object with ROI settings.
+            coco_data (Dict[str, Any]): COCO data dictionary.
+        """
+        assert isinstance(config, ROIConfig), "config must be an instance of ROIConfig"
+        return cls(
+            coco_data=coco_data,
+            random_roi_count=config.random_roi_count,
+            roi_box_size=config.roi_box_size,
+            min_roi_size=config.min_roi_size,
+            background_class=config.background_class,
+            save_format=config.save_format,
+            quality=config.quality,
+            sample_background=config.sample_background,
+            dark_threshold=config.dark_threshold,
+        )
 
     def create_class_mapping(
         self,
@@ -176,7 +200,7 @@ class ROIAdapter(BaseAdapter):
                 roi_counter = image_rois["next_counter"]
                 statistics["rois_from_annotations"] += len(image_rois["roi_images"])
                 statistics["total_rois"] += len(image_rois["roi_images"])
-            else:
+            elif self.sample_background:
                 # Generate ROIs for unannotated image
                 statistics["unannotated_images"] += 1
                 image_rois = self._generate_rois_for_unannotated_image(
@@ -188,6 +212,8 @@ class ROIAdapter(BaseAdapter):
                 statistics["rois_from_callback"] += image_rois["callback_rois"]
                 statistics["rois_from_random"] += image_rois["random_rois"]
                 statistics["total_rois"] += len(image_rois["roi_images"])
+
+        print(statistics)
 
         return {
             "roi_images": roi_images,

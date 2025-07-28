@@ -46,21 +46,13 @@ def create_roi_dataset_core(config: ROIDatasetConfig, verbose: bool = False) -> 
 
         path_manager = PathManager(Path(config.root))
         framework_data_manager = FrameworkDataManager(path_manager)
-        roi_config = ROIConfig(
-            random_roi_count=config.roi_config.random_roi_count,
-            roi_box_size=config.roi_config.roi_box_size,
-            min_roi_size=config.roi_config.min_roi_size,
-            dark_threshold=config.roi_config.dark_threshold,
-            roi_callback=None,  # Not supported via CLI config
-            background_class=config.roi_config.background_class,
-            save_format=config.roi_config.save_format,
-            quality=config.roi_config.quality,
-        )
+
         framework_data_manager.create_roi_format(
             dataset_name=config.dataset_name,
             coco_data=split_coco_data[config.split_name],
             split=config.split_name,
-            roi_config=roi_config,
+            roi_config=config.roi_config,
+            draw_original_bboxes=config.draw_original_bboxes,
         )
         typer.echo(
             f"[SUCCESS] Successfully created ROI dataset for '{config.dataset_name}' (split: {config.split_name}) at {config.root}"
@@ -102,6 +94,7 @@ def create_roi_one_worker(args) -> tuple:
             roi_config=config_dict["roi_config"],
             ls_xml_config=config_dict["ls_xml_config"],
             ls_parse_config=config_dict["ls_parse_config"],
+            draw_original_bboxes=config_dict.get("draw_original_bboxes", False),
         )
         # Use the same core logic as create_roi_dataset
         from ..pipeline import FrameworkDataManager, Loader, PathManager
@@ -119,21 +112,11 @@ def create_roi_one_worker(args) -> tuple:
         )
         path_manager = PathManager(Path(single_config.root))
         framework_data_manager = FrameworkDataManager(path_manager)
-        roi_config = ROIConfig(
-            random_roi_count=single_config.roi_config.random_roi_count,
-            roi_box_size=single_config.roi_config.roi_box_size,
-            min_roi_size=single_config.roi_config.min_roi_size,
-            dark_threshold=single_config.roi_config.dark_threshold,
-            roi_callback=None,
-            background_class=single_config.roi_config.background_class,
-            save_format=single_config.roi_config.save_format,
-            quality=single_config.roi_config.quality,
-        )
         framework_data_manager.create_roi_format(
             dataset_name=single_config.dataset_name,
             coco_data=split_coco_data[single_config.split_name],
             split=single_config.split_name,
-            roi_config=roi_config,
+            roi_config=single_config.roi_config,
         )
         return (i, name, True, None)
     except ValidationError as e:

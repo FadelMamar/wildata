@@ -2,6 +2,7 @@
 REM Visualize datasets using the wildata CLI
 REM This script provides examples for both classification and detection visualization
 
+call cd /d "%~dp0" && cd ..
 echo ========================================
 echo WildData Visualization Examples
 echo ========================================

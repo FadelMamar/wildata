@@ -2,91 +2,218 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from altair.utils.data import sample
+from pydantic import BaseModel, Field, field_validator
+
 ROOT = Path(__file__).parents[2]
 ENV_FILE = str(ROOT / ".env")
 
 
-@dataclass
-class AugmentationConfig:
-    rotation_range: Tuple[float, float] = (-45, 45)
-    probability: float = 1.0
-    brightness_range: Tuple[float, float] = (-0.2, 0.4)
-    scale: Tuple[float, float] = (1.0, 2.0)
-    translate: Tuple[float, float] = (-0.1, 0.2)
-    shear: Tuple[float, float] = (-5, 5)
-    contrast_range: Tuple[float, float] = (-0.2, 0.4)
-    noise_std: Tuple[float, float] = (0.01, 0.1)
-    seed: int = 41
-    num_transforms: int = 2
+class ROIConfig(BaseModel):
+    """ROI configuration for CLI."""
 
-    def __post_init__(self):
-        self._validate_config()
-        self.rotation_range = tuple(float(x) for x in self.rotation_range)
-        self.brightness_range = tuple(float(x) for x in self.brightness_range)
-        self.contrast_range = tuple(float(x) for x in self.contrast_range)
-        self.noise_std = tuple(float(x) for x in self.noise_std)
-        self.probability = float(self.probability)
+    random_roi_count: int = Field(default=1, description="Number of random ROIs")
+    roi_box_size: int = Field(default=128, description="ROI box size")
+    min_roi_size: int = Field(default=32, description="Minimum ROI size")
+    dark_threshold: float = Field(default=0.5, description="Dark threshold")
+    background_class: str = Field(
+        default="background", description="Background class name"
+    )
+    save_format: str = Field(default="jpg", description="Save format")
+    quality: int = Field(default=95, description="Image quality")
+    sample_background: bool = Field(
+        default=True, description="Sample background from dataset"
+    )
 
-    def _validate_config(self):
-        # Allow zero rotation range for deterministic tests
-        if self.rotation_range[0] > self.rotation_range[1]:
-            raise ValueError("Rotation range start must be less than or equal to end")
-        if self.probability < 0 or self.probability > 1:
+    @field_validator("random_roi_count", mode="before")
+    @classmethod
+    def validate_random_roi_count(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("roi_box_size", mode="before")
+    @classmethod
+    def validate_roi_box_size(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("min_roi_size", mode="before")
+    @classmethod
+    def validate_min_roi_size(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("quality", mode="before")
+    @classmethod
+    def validate_quality(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("dark_threshold", mode="before")
+    @classmethod
+    def validate_dark_threshold(cls, v: Any) -> float:
+        v = float(v)
+        if not 0 <= v <= 1:
+            raise ValueError("dark_threshold must be between 0 and 1")
+        return v
+
+    @field_validator("save_format", mode="before")
+    @classmethod
+    def validate_save_format(cls, v: Any) -> str:
+        if v not in ["jpg", "jpeg", "png"]:
+            raise ValueError("save_format must be one of: jpg, jpeg, png")
+        return v
+
+
+class TilingConfig(BaseModel):
+    """Tiling configuration for CLI."""
+
+    tile_size: int = Field(default=512, description="Tile size")
+    stride: int = Field(default=416, description="Stride between tiles")
+    min_visibility: float = Field(default=0.1, description="Minimum visibility ratio")
+    max_negative_tiles_in_negative_image: int = Field(
+        default=3, description="Max negative tiles in negative image"
+    )
+    negative_positive_ratio: float = Field(
+        default=1.0, description="Negative to positive ratio"
+    )
+    dark_threshold: float = Field(default=0.5, description="Dark threshold")
+
+    @field_validator("tile_size", mode="before")
+    @classmethod
+    def validate_tile_size(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("stride", mode="before")
+    @classmethod
+    def validate_stride(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("max_negative_tiles_in_negative_image", mode="before")
+    @classmethod
+    def validate_max_negative_tiles_in_negative_image(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("min_visibility", mode="before")
+    @classmethod
+    def validate_min_visibility(cls, v: Any) -> float:
+        v = float(v)
+        if not 0 <= v <= 1:
+            raise ValueError("Value must be between 0 and 1")
+        return v
+
+    @field_validator("dark_threshold", mode="before")
+    @classmethod
+    def validate_dark_threshold(cls, v: Any) -> float:
+        v = float(v)
+        if not 0 <= v <= 1:
+            raise ValueError("Value must be between 0 and 1")
+        return v
+
+    @field_validator("negative_positive_ratio", mode="before")
+    @classmethod
+    def validate_negative_positive_ratio(cls, v: Any) -> float:
+        v = float(v)
+        if v < 0:
+            raise ValueError("Ratio must be non-negative")
+        return v
+
+
+class AugmentationConfig(BaseModel):
+    """Augmentation configuration for CLI."""
+
+    rotation_range: Tuple[float, float] = Field(
+        default=(-45, 45), description="Rotation range"
+    )
+    probability: float = Field(
+        default=1.0, description="Probability of applying augmentation"
+    )
+    brightness_range: Tuple[float, float] = Field(
+        default=(-0.2, 0.4), description="Brightness range"
+    )
+    scale: Tuple[float, float] = Field(default=(1.0, 2.0), description="Scale range")
+    translate: Tuple[float, float] = Field(
+        default=(-0.1, 0.2), description="Translation range"
+    )
+    shear: Tuple[float, float] = Field(default=(-5, 5), description="Shear range")
+    contrast_range: Tuple[float, float] = Field(
+        default=(-0.2, 0.4), description="Contrast range"
+    )
+    noise_std: Tuple[float, float] = Field(
+        default=(0.01, 0.1), description="Noise standard deviation range"
+    )
+    seed: int = Field(default=41, description="Random seed")
+    num_transforms: int = Field(default=2, description="Number of transformations")
+
+    @field_validator("probability", mode="before")
+    @classmethod
+    def validate_probability(cls, v: Any) -> float:
+        v = float(v)
+        if not 0 <= v <= 1:
             raise ValueError("Probability must be between 0 and 1")
-        if self.brightness_range[0] > self.brightness_range[1]:
-            raise ValueError("Brightness range start must be less than or equal to end")
-        if self.contrast_range[0] > self.contrast_range[1]:
-            raise ValueError("Contrast range start must be less than or equal to end")
-        if self.noise_std[0] > self.noise_std[1]:
-            raise ValueError(
-                f"Noise standard deviation range is flipped -> {self.noise_std}"
-            )
+        return v
+
+    @field_validator("num_transforms", mode="before")
+    @classmethod
+    def validate_num_transforms(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
+
+    @field_validator("seed", mode="before")
+    @classmethod
+    def validate_seed(cls, v: Any) -> int:
+        v = int(v)
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
 
 
-@dataclass
-class TilingConfig:
-    tile_size: int = 512
-    stride: int = 416
-    min_visibility: float = 0.1
-    max_negative_tiles_in_negative_image: int = 3
-    negative_positive_ratio: float = 1.0
-    dark_threshold: float = 0.5  # keep tiles with less than e.g. 50% dark pixels
+class BboxClippingConfig(BaseModel):
+    """Bounding box clipping configuration for CLI."""
 
-    def __post_init__(self):
-        self._validate_config()
-        self.tile_size = int(self.tile_size)
-        self.stride = int(self.stride)
-        self.min_visibility = float(self.min_visibility)
-        self.max_negative_tiles_in_negative_image = int(
-            self.max_negative_tiles_in_negative_image
-        )
-        self.negative_positive_ratio = float(self.negative_positive_ratio)
-        self._filter_empty_tiles = self.negative_positive_ratio > 0
+    tolerance: int = Field(default=5, description="Tolerance for clipping")
+    skip_invalid: bool = Field(default=False, description="Skip invalid annotations")
 
-    def _validate_config(self):
-        if self.tile_size <= 0:
-            raise ValueError("Tile size must be greater than 0")
-        if self.stride <= 0 or self.stride > self.tile_size:
-            raise ValueError(
-                "Stride must be greater than 0 and less than or equal to tile size"
-            )
-        if self.min_visibility < 0 or self.min_visibility > 1:
-            raise ValueError("Minimum visibility must be between 0 and 1")
-        if self.max_negative_tiles_in_negative_image <= 0:
-            raise ValueError("Maximum negative tiles must be greater than 0")
-        if self.negative_positive_ratio < 0:
-            raise ValueError("Negative positive ratio must be non-negative")
-        if self.dark_threshold < 0 or self.dark_threshold > 1:
-            raise ValueError("Dark threshold must be between 0 and 1")
+    @field_validator("tolerance", mode="before")
+    @classmethod
+    def validate_tolerance(cls, v: Any) -> int:
+        v = int(v)
+        if v < 0:
+            raise ValueError("Tolerance must be non-negative")
+        return v
 
 
-@dataclass
-class ROIConfig:
-    random_roi_count: int = 1
-    roi_box_size: int = 128
-    min_roi_size: int = 32
-    dark_threshold: float = 0.5
-    roi_callback: Optional[Callable] = None
-    background_class: str = "background"
-    save_format: str = "jpg"
-    quality: int = 95
+class TransformationConfig(BaseModel):
+    """Transformation pipeline configuration for CLI."""
+
+    enable_bbox_clipping: bool = Field(default=True, description="Enable bbox clipping")
+    bbox_clipping: Optional[BboxClippingConfig] = Field(
+        default=None, description="Bbox clipping config"
+    )
+
+    enable_augmentation: bool = Field(default=False, description="Enable augmentation")
+    augmentation: Optional[AugmentationConfig] = Field(
+        default=None, description="Augmentation config"
+    )
+
+    enable_tiling: bool = Field(default=False, description="Enable tiling")
+    tiling: Optional[TilingConfig] = Field(default=None, description="Tiling config")
