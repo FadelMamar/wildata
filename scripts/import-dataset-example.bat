@@ -12,3 +12,5 @@ REM Run the import command with CLI overrides (e.g., override dataset_name)
 
 REM Run the import command using only CLI arguments (no config file)
 :: uv run python -m wildata import-dataset --source-path "data/mydata.json" --format-type coco --dataset-name cli_only_dataset --augment true --tile true 
+
+call pause

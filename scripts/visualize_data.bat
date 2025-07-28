@@ -67,3 +67,5 @@ echo - --single-class: true/false for classification
 echo - --background-class: background class name
 echo - --single-class-name: single class name
 echo.
+
+call pause
