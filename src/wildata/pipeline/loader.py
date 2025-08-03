@@ -104,9 +104,10 @@ class Loader:
                 f"Failed to load {len(warnings)}/{len(coco_data.get('images', []))} images. Set logging level to debug to see."
             )
             logger.info(
-                "Make sure that the format is as expected when image paths are not absolute."
+                "Make sure the format follows : annotation_file_path/../images/split_name/file_name"
             )
-            # logger.warning(warnings)
+            logger.error("Some warnings:")
+            logger.error(warnings[:5])
         # Group annotations by split
         for annotation in coco_data.get("annotations", []):
             image_id = annotation["image_id"]
@@ -125,7 +126,7 @@ class Loader:
             }
 
         return dataset_info, split_data
-    
+
     def _check_if_all_images_are_absolute(self, coco_data: Dict[str, Any]) -> bool:
         num_images_is_absolute = 0
         for image in coco_data.get("images", []):
