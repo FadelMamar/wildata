@@ -4,11 +4,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from fractions import Fraction
 from functools import partial
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import piexif
 from PIL import Image
 from tqdm import tqdm
+from wildata.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def decimal_to_dms(decimal_degree):
@@ -32,7 +36,7 @@ class ExifGPSManager:
     def __init__(self):
         pass
 
-    def _get_gps_data(self, latitude, longitude, altitude=None):
+    def _get_gps_data(self, latitude, longitude, altitude):
         lat_dms_tuple = decimal_to_dms(abs(latitude))
         lon_dms_tuple = decimal_to_dms(abs(longitude))
         lat_dms = [
@@ -60,16 +64,15 @@ class ExifGPSManager:
             piexif.GPSIFD.GPSLongitude: lon_dms,
             piexif.GPSIFD.GPSLongitudeRef: lon_ref,
         }
-        if altitude is not None:
-            alt_fraction = Fraction(abs(altitude)).limit_denominator()
-            gps_data[piexif.GPSIFD.GPSAltitude] = (
-                alt_fraction.numerator,
-                alt_fraction.denominator,
-            )
-            gps_data[piexif.GPSIFD.GPSAltitudeRef] = 0 if altitude >= 0 else 1
+        alt_fraction = Fraction(abs(altitude)).limit_denominator()
+        gps_data[piexif.GPSIFD.GPSAltitude] = (
+            alt_fraction.numerator,
+            alt_fraction.denominator,
+        )
+        gps_data[piexif.GPSIFD.GPSAltitudeRef] = 0 if altitude >= 0 else 1
         return gps_data
 
-    def _get_updated_exif_dict(self, exif_dict, latitude, longitude, altitude=None):
+    def _get_updated_exif_dict(self, exif_dict, latitude, longitude, altitude):
         exif_dict = (
             exif_dict.copy()
             if exif_dict
@@ -78,9 +81,7 @@ class ExifGPSManager:
         exif_dict["GPS"] = self._get_gps_data(latitude, longitude, altitude)
         return exif_dict
 
-    def add_gps_to_image(
-        self, input_path, output_path, latitude, longitude, altitude=None
-    ):
+    def add_gps_to_image(self, input_path, output_path, latitude, longitude, altitude):
         """
         Add GPS coordinates to image EXIF data
         """
@@ -94,56 +95,7 @@ class ExifGPSManager:
         )
         exif_bytes = piexif.dump(exif_dict)
         img.save(output_path, exif=exif_bytes)
-        print(f"GPS data added successfully to {output_path}")
-
-    def read_gps_from_image(self, image_path):
-        """Read GPS coordinates from image EXIF data"""
-        try:
-            img = Image.open(image_path)
-            exif_dict = piexif.load(img.info.get("exif", b""))
-            gps_info = exif_dict.get("GPS", {})
-            if not gps_info:
-                print("No GPS data found in image")
-                return None
-            lat_dms = gps_info.get(piexif.GPSIFD.GPSLatitude)
-            lat_ref = gps_info.get(piexif.GPSIFD.GPSLatitudeRef, b"N").decode()
-            lon_dms = gps_info.get(piexif.GPSIFD.GPSLongitude)
-            lon_ref = gps_info.get(piexif.GPSIFD.GPSLongitudeRef, b"E").decode()
-            if lat_dms and lon_dms:
-                lat_decimal = (
-                    lat_dms[0][0] / lat_dms[0][1]
-                    + lat_dms[1][0] / (lat_dms[1][1] * 60)
-                    + lat_dms[2][0] / (lat_dms[2][1] * 3600)
-                )
-                if lat_ref == "S":
-                    lat_decimal = -lat_decimal
-                lon_decimal = (
-                    lon_dms[0][0] / lon_dms[0][1]
-                    + lon_dms[1][0] / (lon_dms[1][1] * 60)
-                    + lon_dms[2][0] / (lon_dms[2][1] * 3600)
-                )
-                if lon_ref == "W":
-                    lon_decimal = -lon_decimal
-                print(f"GPS Coordinates: {lat_decimal:.6f}, {lon_decimal:.6f}")
-                return lat_decimal, lon_decimal
-        except Exception as e:
-            print(f"Error reading GPS data: {e}")
-            return None
-
-    def add_gps_to_image_inplace(self, file_path, latitude, longitude, altitude=None):
-        """
-        Add GPS coordinates to image EXIF data (modifies original file)
-        """
-        try:
-            exif_dict = piexif.load(file_path)
-        except:
-            exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
-        exif_dict = self._get_updated_exif_dict(
-            exif_dict, latitude, longitude, altitude
-        )
-        exif_bytes = piexif.dump(exif_dict)
-        piexif.insert(exif_bytes, file_path)
-        print(f"GPS data added to {file_path}")
+        logger.debug(f"GPS data added successfully to {output_path}")
 
     def update_folder_from_csv(
         self,
@@ -155,36 +107,46 @@ class ExifGPSManager:
         lat_col="latitude",
         lon_col="longitude",
         alt_col="altitude",
+        csv_data: Optional[pd.DataFrame] = None,
+        max_workers: int = 3,
     ):
         """
         Update EXIF GPS data for all images in a folder using a CSV file.
         CSV must have columns: filename, latitude, longitude, [altitude]
         If inplace is False, images are written to output_dir (preserving filenames).
         """
-        df = pd.read_csv(csv_path, skiprows=skip_rows)
+        if csv_data is None:
+            df = pd.read_csv(csv_path, skiprows=skip_rows)
+        else:
+            df = csv_data
 
         def image_info():
             for _, row in df.iterrows():
                 filename = row[filename_col]
                 lat = float(row[lat_col])
                 lon = float(row[lon_col])
-                alt = (
-                    float(row[alt_col])
-                    if alt_col in row and not pd.isnull(row[alt_col])
-                    else None
-                )
-                yield os.path.join(image_folder, filename), lat, lon, alt
+                alt = float(row[alt_col])
+
+                image_path = os.path.join(image_folder, filename)
+                out_path = os.path.join(output_dir, filename)
+                yield image_path, out_path, lat, lon, alt
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         num_images = len(df)
         with tqdm(total=num_images, unit="images") as pbar:
-            for image_path, lat, lon, alt in image_info():
-                self.add_gps_to_image(
-                    image_path,
-                    os.path.join(output_dir, os.path.basename(image_path)),
-                    latitude=lat,
-                    longitude=lon,
-                    altitude=alt,
-                )
-                pbar.update(1)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(
+                        self.add_gps_to_image,
+                        input_path=image_path,
+                        output_path=out_path,
+                        latitude=lat,
+                        longitude=lon,
+                        altitude=alt,
+                    )
+                    for image_path, out_path, lat, lon, alt in image_info()
+                ]
+                for future in as_completed(futures):
+                    future.result()
+                    pbar.update(1)

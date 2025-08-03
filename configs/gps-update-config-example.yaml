@@ -2,16 +2,16 @@
 # This file demonstrates how to configure the update_gps_from_csv command
 
 # Required parameters
-image_folder: "path/to/images"  # Path to folder containing images
-csv_path: "path/to/gps_coordinates.csv"  # Path to CSV file with GPS coordinates
-output_dir: "path/to/output"  # Output directory for updated images
+image_folder: D:\workspace\data\savmap_dataset_v2\images_splits  # Path to folder containing images
+csv_path: D:\workspace\repos\wildata\examples\mock_csv.csv  # Path to CSV file with GPS coordinates
+output_dir: D:\workspace\repos\wildata\data\savmap_dataset_v2_splits_with_gps  # Output directory for updated images
 
 # Optional parameters
 skip_rows: 0  # Number of rows to skip in CSV (e.g., header row)
 filename_col: "filename"  # CSV column name for filenames
 lat_col: "latitude"  # CSV column name for latitude
 lon_col: "longitude"  # CSV column name for longitude
-alt_col: "altitude"  # CSV column name for altitude (optional)
+alt_col: "altitude"  # CSV column name for altitude
 
 # Example CSV format:
 # filename,latitude,longitude,altitude

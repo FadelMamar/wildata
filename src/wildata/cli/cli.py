@@ -127,6 +127,7 @@ def import_dataset(
     log_file = (
         ROOT
         / "logs"
+        / "import_datasets"
         / f"import_dataset_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     setup_logging(log_file=log_file.as_posix())
@@ -254,6 +255,7 @@ def bulk_import_datasets(
     log_file = (
         ROOT
         / "logs"
+        / "import_datasets"
         / f"bulk_import_datasets_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     setup_logging(log_file=log_file.as_posix())
@@ -327,6 +329,7 @@ def create_roi_dataset(
     log_file = (
         ROOT
         / "logs"
+        / "roi_creation"
         / f"create_roi_dataset_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     setup_logging(log_file=log_file.as_posix())
@@ -357,6 +360,7 @@ def bulk_create_roi_datasets(
     log_file = (
         ROOT
         / "logs"
+        / "roi_creation"
         / f"bulk_create_roi_datasets_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     setup_logging(log_file=log_file.as_posix())
@@ -449,7 +453,7 @@ def list_datasets(
                 typer.echo(f"     Splits: {dataset.get('splits', 'Unknown')}")
 
     except Exception as e:
-        typer.echo(f"❌ Failed to list datasets: {str(traceback.format_exc())}")
+        typer.echo(f"[ERROR] Failed to list datasets: {str(traceback.format_exc())}")
         raise typer.Exit(1)
 
 
@@ -478,14 +482,14 @@ def export_dataset(
 
         if success:
             typer.echo(
-                f"✅ Successfully exported dataset '{dataset_name}' to {target_path}"
+                f"[SUCCESS] Successfully exported dataset '{dataset_name}' to {target_path}"
             )
         else:
-            typer.echo(f"❌ Failed to export dataset '{dataset_name}'")
+            typer.echo(f"[ERROR] Failed to export dataset '{dataset_name}'")
             raise typer.Exit(1)
 
     except Exception as e:
-        typer.echo(f"❌ Export failed: {str(e)}")
+        typer.echo(f"[ERROR] Export failed: {str(e)}")
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
@@ -533,7 +537,7 @@ def visualize_classification(
         split=split,
     )
     typer.echo(
-        f"✅ Visualization launched in FiftyOne for dataset '{dataset_name}' (split: {split})"
+        f"[SUCCESS] Visualization launched in FiftyOne for dataset '{dataset_name}' (split: {split})"
     )
 
 
@@ -555,7 +559,7 @@ def visualize_detection(
         split=split,
     )
     typer.echo(
-        f"✅ Visualization launched in FiftyOne for detection dataset '{dataset_name}' (split: {split})"
+        f"[SUCCESS] Visualization launched in FiftyOne for detection dataset '{dataset_name}' (split: {split})"
     )
 
 
@@ -594,6 +598,7 @@ def update_gps_from_csv(
     log_file = (
         ROOT
         / "logs"
+        / "gps_update"
         / f"update_gps_from_csv_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     )
     setup_logging(log_file=log_file.as_posix())
@@ -603,13 +608,14 @@ def update_gps_from_csv(
         # If config is given, do not allow any other required args
         if any([image_folder, csv_path, output_dir]):
             typer.echo(
-                "❌ If --config is provided, do not provide other arguments.", err=True
+                "[ERROR] If --config is provided, do not provide other arguments.",
+                err=True,
             )
             raise typer.Exit(1)
         try:
             config = ExifGPSUpdateConfig.from_yaml(config_file)
         except Exception as e:
-            typer.echo(f"❌ Failed to load config file: {traceback.format_exc()}")
+            typer.echo(f"[ERROR] Failed to load config file: {traceback.format_exc()}")
             raise typer.Exit(1)
     else:
         # If config is not given, require all required args
@@ -621,7 +627,9 @@ def update_gps_from_csv(
         if not output_dir:
             missing.append("output_dir")
         if missing:
-            typer.echo(f"❌ Missing required arguments: {', '.join(missing)}", err=True)
+            typer.echo(
+                f"[ERROR] Missing required arguments: {', '.join(missing)}", err=True
+            )
             raise typer.Exit(1)
 
         # Create config from command-line arguments
@@ -638,21 +646,21 @@ def update_gps_from_csv(
         try:
             config = ExifGPSUpdateConfig(**config_data)
         except ValidationError as e:
-            typer.echo(f"❌ Configuration validation error:")
+            typer.echo(f"[ERROR] Configuration validation error:")
             for error in e.errors():
                 typer.echo(f"   {error['loc'][0]}: {error['msg']}")
             raise typer.Exit(1)
 
     try:
         if verbose:
-            typer.echo(f"📁 Image folder: {config.image_folder}")
-            typer.echo(f"📄 CSV file: {config.csv_path}")
-            typer.echo(f"📂 Output directory: {config.output_dir}")
-            typer.echo(f"⏭️  Skip rows: {config.skip_rows}")
-            typer.echo(f"📝 Filename column: {config.filename_col}")
-            typer.echo(f"📍 Latitude column: {config.lat_col}")
-            typer.echo(f"📍 Longitude column: {config.lon_col}")
-            typer.echo(f"📍 Altitude column: {config.alt_col}")
+            typer.echo(f"[FOLDER] Image folder: {config.image_folder}")
+            typer.echo(f"[FILE] CSV file: {config.csv_path}")
+            typer.echo(f"[OUTPUT] Output directory: {config.output_dir}")
+            typer.echo(f"[SKIP] Skip rows: {config.skip_rows}")
+            typer.echo(f"[COLUMN] Filename column: {config.filename_col}")
+            typer.echo(f"[LAT] Latitude column: {config.lat_col}")
+            typer.echo(f"[LON] Longitude column: {config.lon_col}")
+            typer.echo(f"[ALT] Altitude column: {config.alt_col}")
 
         # Initialize ExifGPSManager and update GPS data
         gps_manager = ExifGPSManager()
@@ -668,12 +676,12 @@ def update_gps_from_csv(
         )
 
         typer.echo(
-            f"✅ Successfully updated GPS data for images in '{config.image_folder}'"
+            f"[SUCCESS] Successfully updated GPS data for images in '{config.image_folder}'"
         )
-        typer.echo(f"📁 Updated images saved to: {config.output_dir}")
+        typer.echo(f"[OUTPUT] Updated images saved to: {config.output_dir}")
 
     except Exception as e:
-        typer.echo(f"❌ Failed to update GPS data: {str(e)}")
+        typer.echo(f"[ERROR] Failed to update GPS data: {str(e)}")
         if verbose:
             typer.echo(f"   Traceback: {traceback.format_exc()}")
         raise typer.Exit(1)
