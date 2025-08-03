@@ -120,12 +120,12 @@ def create_roi_one_worker(args) -> tuple:
         )
         return (i, name, True, None)
     except ValidationError as e:
-        msg = f"❌ Configuration validation error for '{name}':\n" + "\n".join(
+        msg = f"[ERROR] Configuration validation error for '{name}':\n" + "\n".join(
             f"   {error['loc'][0]}: {error['msg']}" for error in e.errors()
         )
         return (i, name, False, msg)
     except Exception as e:
-        msg = f"❌ Unexpected error for '{name}': {str(e)}"
+        msg = f"[ERROR] Unexpected error for '{name}': {str(e)}"
         if verbose:
             msg += f"\n   Traceback: {traceback.format_exc()}"
         return (i, name, False, msg)
