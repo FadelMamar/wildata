@@ -244,61 +244,62 @@ def main():
                     st.error(f"❌ GPS update failed: {output}")
 
         st.markdown("**Using Command Line Arguments**")
-        with st.form("gps_form"):
-            image_folder = st.text_input("Image Folder Path", key="gps_image_folder")
-            csv_path = st.text_input("CSV File Path", key="gps_csv_path")
-            output_dir = st.text_input("Output Directory", key="gps_output_dir")
+        with st.expander("Update GPS from CSV (CLI)", expanded=True):
+            with st.form("gps_form"):
+                image_folder = st.text_input("Image Folder Path", key="gps_image_folder")
+                csv_path = st.text_input("CSV File Path", key="gps_csv_path")
+                output_dir = st.text_input("Output Directory", key="gps_output_dir")
 
-            # Optional parameters
-            skip_rows = st.number_input(
-                "Skip Rows", min_value=0, value=0, key="gps_skip_rows"
-            )
-            filename_col = st.text_input(
-                "Filename Column", value="filename", key="gps_filename_col"
-            )
-            lat_col = st.text_input(
-                "Latitude Column", value="latitude", key="gps_lat_col"
-            )
-            lon_col = st.text_input(
-                "Longitude Column", value="longitude", key="gps_lon_col"
-            )
-            alt_col = st.text_input(
-                "Altitude Column", value="altitude", key="gps_alt_col"
-            )
+                # Optional parameters
+                skip_rows = st.number_input(
+                    "Skip Rows", min_value=0, value=0, key="gps_skip_rows"
+                )
+                filename_col = st.text_input(
+                    "Filename Column", value="filename", key="gps_filename_col"
+                )
+                lat_col = st.text_input(
+                    "Latitude Column", value="latitude", key="gps_lat_col"
+                )
+                lon_col = st.text_input(
+                    "Longitude Column", value="longitude", key="gps_lon_col"
+                )
+                alt_col = st.text_input(
+                    "Altitude Column", value="altitude", key="gps_alt_col"
+                )
 
-            if st.form_submit_button("Update GPS (CLI)"):
-                if image_folder and csv_path and output_dir:
-                    args = [
-                        "--image-folder",
-                        image_folder,
-                        "--csv",
-                        csv_path,
-                        "--output",
-                        output_dir,
-                        "--skip-rows",
-                        str(skip_rows),
-                        "--filename-col",
-                        filename_col,
-                        "--lat-col",
-                        lat_col,
-                        "--lon-col",
-                        lon_col,
-                        "--alt-col",
-                        alt_col,
-                        "--verbose",
-                    ]
-                    placeholder = st.empty()
-                    success, output = run_cli_command(
-                        "update-gps-from-csv", args, log_placeholder=placeholder
-                    )
-                    if success:
-                        st.success("✅ GPS data updated successfully!")
+                if st.form_submit_button("Update GPS (CLI)"):
+                    if image_folder and csv_path and output_dir:
+                        args = [
+                            "--image-folder",
+                            image_folder,
+                            "--csv",
+                            csv_path,
+                            "--output",
+                            output_dir,
+                            "--skip-rows",
+                            str(skip_rows),
+                            "--filename-col",
+                            filename_col,
+                            "--lat-col",
+                            lat_col,
+                            "--lon-col",
+                            lon_col,
+                            "--alt-col",
+                            alt_col,
+                            "--verbose",
+                        ]
+                        placeholder = st.empty()
+                        success, output = run_cli_command(
+                            "update-gps-from-csv", args, log_placeholder=placeholder
+                        )
+                        if success:
+                            st.success("✅ GPS data updated successfully!")
+                        else:
+                            st.error(f"❌ GPS update failed: {output}")
                     else:
-                        st.error(f"❌ GPS update failed: {output}")
-                else:
-                    st.error(
-                        "Please provide image folder, CSV path, and output directory"
-                    )
+                        st.error(
+                            "Please provide image folder, CSV path, and output directory"
+                        )
 
     # Tab 4: Visualization
     with tab4:
