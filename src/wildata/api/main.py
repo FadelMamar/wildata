@@ -12,7 +12,14 @@ from fastapi.responses import JSONResponse
 from .config import api_config
 from .dependencies import handle_api_exception
 from .exceptions import WildDataAPIException
-from .routers import datasets_router, health_router, jobs_router
+from .routers import (
+    datasets_router,
+    gps_router,
+    health_router,
+    jobs_router,
+    roi_router,
+    visualization_router,
+)
 
 
 @asynccontextmanager
@@ -65,6 +72,9 @@ async def wilddata_exception_handler(request: Request, exc: WildDataAPIException
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(datasets_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
+app.include_router(roi_router, prefix="/api/v1")
+app.include_router(gps_router, prefix="/api/v1")
+app.include_router(visualization_router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -89,5 +99,8 @@ async def api_info():
             "health": "/api/v1/health",
             "datasets": "/api/v1/datasets",
             "jobs": "/api/v1/jobs",
+            "roi": "/api/v1/roi",
+            "gps": "/api/v1/gps",
+            "visualization": "/api/v1/visualize",
         },
     }

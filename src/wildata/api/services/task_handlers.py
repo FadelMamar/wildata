@@ -408,3 +408,159 @@ async def handle_update_gps(
             job_id, JobStatus.FAILED, progress=100.0, result=result
         )
         return result
+
+
+async def handle_visualize_classification(
+    job_id: str, config: Any, verbose: bool = False
+) -> JobResult:
+    """Handle classification dataset visualization in background."""
+    job_queue = get_job_queue()
+
+    try:
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=10.0)
+
+        # Import the visualization module
+        from ...visualization import visualize_classification_dataset
+
+        # Config is already a CLI config model
+        cli_config = config
+
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=50.0)
+
+        # Run the visualization
+        result_message = visualize_classification_dataset(
+            root_data_directory=cli_config.root_data_directory,
+            dataset_name=cli_config.dataset_name,
+            split=cli_config.split,
+            load_as_single_class=cli_config.load_as_single_class,
+            background_class_name=cli_config.background_class_name,
+            single_class_name=cli_config.single_class_name,
+            keep_classes=cli_config.keep_classes,
+            discard_classes=cli_config.discard_classes,
+        )
+
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=90.0)
+
+        result = JobResult(
+            success=True,
+            message=f"Successfully visualized classification dataset: {result_message}",
+            data={
+                "dataset_name": cli_config.dataset_name,
+                "split": cli_config.split,
+                "visualization_url": result_message,
+            },
+        )
+        await job_queue.update_job_status(
+            job_id, JobStatus.COMPLETED, progress=100.0, result=result
+        )
+        return result
+
+    except Exception as e:
+        result = JobResult(success=False, error=f"Visualization failed: {str(e)}")
+        await job_queue.update_job_status(
+            job_id, JobStatus.FAILED, progress=100.0, result=result
+        )
+        return result
+
+
+async def handle_visualize_detection(
+    job_id: str, config: Any, verbose: bool = False
+) -> JobResult:
+    """Handle detection dataset visualization in background."""
+    job_queue = get_job_queue()
+
+    try:
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=10.0)
+
+        # Import the visualization module
+        from ...visualization import visualize_detection_dataset
+
+        # Config is already a CLI config model
+        cli_config = config
+
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=50.0)
+
+        # Run the visualization
+        result_message = visualize_detection_dataset(
+            root_data_directory=cli_config.root_data_directory,
+            dataset_name=cli_config.dataset_name,
+            split=cli_config.split,
+            load_as_single_class=cli_config.load_as_single_class,
+            background_class_name=cli_config.background_class_name,
+            single_class_name=cli_config.single_class_name,
+            keep_classes=cli_config.keep_classes,
+            discard_classes=cli_config.discard_classes,
+        )
+
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=90.0)
+
+        result = JobResult(
+            success=True,
+            message=f"Successfully visualized detection dataset: {result_message}",
+            data={
+                "dataset_name": cli_config.dataset_name,
+                "split": cli_config.split,
+                "visualization_url": result_message,
+            },
+        )
+        await job_queue.update_job_status(
+            job_id, JobStatus.COMPLETED, progress=100.0, result=result
+        )
+        return result
+
+    except Exception as e:
+        result = JobResult(success=False, error=f"Visualization failed: {str(e)}")
+        await job_queue.update_job_status(
+            job_id, JobStatus.FAILED, progress=100.0, result=result
+        )
+        return result
+
+
+async def handle_delete_dataset(
+    job_id: str, dataset_name: str, root: str = "data"
+) -> JobResult:
+    """Handle dataset deletion in background."""
+    job_queue = get_job_queue()
+
+    try:
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=10.0)
+
+        # Import the pipeline
+        from ...pipeline import DataPipeline
+
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=50.0)
+
+        # Run the deletion
+        pipeline = DataPipeline(root=root, split_name="train")
+        success = pipeline.delete_dataset(dataset_name)
+
+        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=90.0)
+
+        if success:
+            result = JobResult(
+                success=True,
+                message=f"Successfully deleted dataset '{dataset_name}'",
+                data={
+                    "dataset_name": dataset_name,
+                    "root": root,
+                },
+            )
+            await job_queue.update_job_status(
+                job_id, JobStatus.COMPLETED, progress=100.0, result=result
+            )
+        else:
+            result = JobResult(
+                success=False, error=f"Failed to delete dataset '{dataset_name}'"
+            )
+            await job_queue.update_job_status(
+                job_id, JobStatus.FAILED, progress=100.0, result=result
+            )
+
+        return result
+
+    except Exception as e:
+        result = JobResult(success=False, error=f"Deletion failed: {str(e)}")
+        await job_queue.update_job_status(
+            job_id, JobStatus.FAILED, progress=100.0, result=result
+        )
+        return result

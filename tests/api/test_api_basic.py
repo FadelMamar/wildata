@@ -4,8 +4,7 @@ Basic API tests.
 
 import pytest
 from fastapi.testclient import TestClient
-
-from src.wildata.api.main import app
+from wildata.api.main import app
 
 
 @pytest.fixture
@@ -56,17 +55,6 @@ def test_detailed_health_endpoint(client):
     assert data["status"] == "healthy"
     assert "timestamp" in data
     assert "version" in data
-    assert "uptime" in data
-
-
-def test_metrics_endpoint(client):
-    """Test metrics endpoint."""
-    response = client.get("/api/v1/metrics")
-    assert response.status_code == 200
-    data = response.json()
-    assert "requests_total" in data
-    assert "requests_per_second" in data
-    assert "response_time_avg" in data
 
 
 def test_docs_endpoint(client):

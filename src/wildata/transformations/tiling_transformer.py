@@ -5,6 +5,7 @@ Tiling transformer for extracting tiles/patches from images and annotations.
 import logging
 import math
 import random
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 

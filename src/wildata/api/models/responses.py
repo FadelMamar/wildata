@@ -139,3 +139,15 @@ class DatasetListResponse(BaseModel):
     datasets: List[DatasetInfo] = Field(..., description="List of datasets")
     total_count: int = Field(..., description="Total number of datasets")
     root_directory: str = Field(..., description="Root directory for datasets")
+
+
+class VisualizationResponse(BaseModel):
+    """Response model for dataset visualization."""
+
+    success: bool = Field(..., description="Whether the visualization was successful")
+    job_id: Optional[str] = Field(None, description="Background job ID if async")
+    message: Optional[str] = Field(None, description="Result message")
+    dataset_name: str = Field(..., description="Name of the dataset")
+    split: str = Field(..., description="Dataset split")
+    visualization_url: Optional[str] = Field(None, description="URL to visualization")
+    error: Optional[str] = Field(None, description="Error message if failed")
