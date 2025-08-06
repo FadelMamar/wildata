@@ -258,3 +258,70 @@ class FiftyOneManager:
         if self.dataset:
             self.dataset.close()
             logger.info("Dataset closed")
+
+
+def visualize_detection_dataset(
+    root_data_directory: str, dataset_name: str, split: str = "train"
+) -> str:
+    """
+    Visualize a detection dataset using FiftyOne.
+
+    Args:
+        root_data_directory: Root directory containing the dataset
+        dataset_name: Name of the dataset
+        split: Dataset split to visualize (train, val, test)
+
+    Returns:
+        str: URL to the FiftyOne app
+    """
+    manager = FiftyOneManager()
+    try:
+        manager.import_detection_data(root_data_directory, dataset_name, split)
+        return f"Dataset {dataset_name}-{split} loaded successfully"
+    except Exception as e:
+        logger.error(f"Error visualizing detection dataset: {e}")
+        raise
+
+
+def visualize_classification_dataset(
+    root_data_directory: str,
+    dataset_name: str,
+    split: str = "train",
+    load_as_single_class: bool = False,
+    background_class_name: str = "background",
+    single_class_name: str = "wildlife",
+    keep_classes: Optional[list[str]] = None,
+    discard_classes: Optional[list[str]] = None,
+) -> str:
+    """
+    Visualize a classification dataset using FiftyOne.
+
+    Args:
+        root_data_directory: Root directory containing the dataset
+        dataset_name: Name of the dataset
+        split: Dataset split to visualize (train, val, test)
+        load_as_single_class: Whether to load all classes as a single class
+        background_class_name: Name for background class
+        single_class_name: Name for single class when load_as_single_class is True
+        keep_classes: List of classes to keep
+        discard_classes: List of classes to discard
+
+    Returns:
+        str: URL to the FiftyOne app
+    """
+    manager = FiftyOneManager()
+    try:
+        manager.import_classification_data(
+            root_data_directory=root_data_directory,
+            dataset_name=dataset_name,
+            load_as_single_class=load_as_single_class,
+            background_class_name=background_class_name,
+            single_class_name=single_class_name,
+            keep_classes=keep_classes,
+            discard_classes=discard_classes,
+            split=split,
+        )
+        return f"Dataset {dataset_name}-{split} loaded successfully"
+    except Exception as e:
+        logger.error(f"Error visualizing classification dataset: {e}")
+        raise
