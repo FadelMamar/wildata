@@ -7,7 +7,6 @@ from .task_handlers import (
     handle_bulk_create_roi,
     handle_bulk_import,
     handle_create_roi,
-    handle_export_dataset,
     handle_import_dataset,
     handle_update_gps,
 )
@@ -19,6 +18,5 @@ __all__ = [
     "handle_bulk_import",
     "handle_create_roi",
     "handle_bulk_create_roi",
-    "handle_export_dataset",
     "handle_update_gps",
 ]

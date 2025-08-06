@@ -70,7 +70,7 @@ async def create_roi_dataset(
 @router.post(
     "/create/bulk",
     response_model=BulkCreateROIResponse,
-    operation_id="create_roi_bulk_datasets",
+    operation_id="bulk_create_roi_dataset",
 )
 async def bulk_create_roi_datasets(
     request: BulkCreateROIRequest,

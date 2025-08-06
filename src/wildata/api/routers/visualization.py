@@ -24,7 +24,11 @@ from ..services.task_handlers import (
 router = APIRouter(prefix="/visualize", tags=["visualization"])
 
 
-@router.post("/classification", response_model=VisualizationResponse)
+@router.post(
+    "/classification",
+    response_model=VisualizationResponse,
+    operation_id="visualize_classification_dataset",
+)
 async def visualize_classification_dataset(
     request: VisualizeRequest,
     background_tasks: BackgroundTasks,
@@ -63,7 +67,11 @@ async def visualize_classification_dataset(
         )
 
 
-@router.post("/detection", response_model=VisualizationResponse)
+@router.post(
+    "/detection",
+    response_model=VisualizationResponse,
+    operation_id="visualize_detection_dataset",
+)
 async def visualize_detection_dataset(
     request: VisualizeRequest,
     background_tasks: BackgroundTasks,

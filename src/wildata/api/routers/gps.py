@@ -23,7 +23,9 @@ from ..services.task_handlers import (
 router = APIRouter(prefix="/gps", tags=["gps"])
 
 
-@router.post("/update", response_model=UpdateGPSResponse)
+@router.post(
+    "/update", response_model=UpdateGPSResponse, operation_id="update_images_gps"
+)
 async def update_gps_from_csv(
     request: UpdateGPSRequest,
     background_tasks: BackgroundTasks,

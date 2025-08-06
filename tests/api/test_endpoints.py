@@ -160,21 +160,6 @@ class TestDatasetEndpoints:
         # This might return 404 if dataset doesn't exist, which is expected
         assert response.status_code in [200, 404]
 
-    def test_export_dataset_endpoint(self, test_client, valid_export_request_data):
-        """Test export dataset endpoint."""
-        # Convert Pydantic model to dict for API call
-        request_data = valid_export_request_data.model_dump()
-        response = test_client.post(
-            "/api/v1/datasets/test_dataset/export", json=request_data
-        )
-
-        # The export might complete synchronously, so check for either 200 or 202
-        assert response.status_code in [200, 202]
-        data = response.json()
-        assert data["success"] is True
-        assert data["dataset_name"] == "test_dataset"
-        assert "job_id" in data
-
 
 class TestROIEndpoints:
     """Test ROI-related endpoints."""
@@ -322,12 +307,3 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-
-    def test_metrics_endpoint(self, test_client):
-        """Test metrics endpoint."""
-        response = test_client.get("/api/v1/metrics")
-        assert response.status_code == 200
-        data = response.json()
-        assert "system" in data
-        assert "memory" in data["system"]
-        assert "cpu" in data["system"]

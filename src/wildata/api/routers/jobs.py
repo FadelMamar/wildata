@@ -15,7 +15,9 @@ from ..services.job_queue import get_job_queue
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-@router.get("/{job_id}", response_model=JobStatusResponse)
+@router.get(
+    "/{job_id}", response_model=JobStatusResponse, operation_id="get_job_status"
+)
 async def get_job_status(job_id: str, user=Depends(verify_token)):
     """Get the status of a background job."""
     try:
@@ -39,7 +41,7 @@ async def get_job_status(job_id: str, user=Depends(verify_token)):
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.get("/", response_model=List[JobStatusResponse])
+@router.get("/", response_model=List[JobStatusResponse], operation_id="list_jobs")
 async def list_jobs(
     status_filter: JobStatus = None,
     limit: int = 50,
@@ -73,7 +75,7 @@ async def list_jobs(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
-@router.delete("/{job_id}")
+@router.delete("/{job_id}", operation_id="cancel_job")
 async def cancel_job(job_id: str, user=Depends(verify_token)):
     """Cancel a background job."""
     try:

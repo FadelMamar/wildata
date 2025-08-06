@@ -11,14 +11,12 @@ from ..dependencies import get_background_task_semaphore, verify_token
 from ..exceptions import DatasetError, NotFoundError, ValidationError
 from ..models.requests import (
     BulkImportRequest,
-    ExportDatasetRequest,
     ImportDatasetRequest,
 )
 from ..models.responses import (
     BulkImportResponse,
     DatasetInfo,
     DatasetListResponse,
-    ExportDatasetResponse,
     ImportDatasetResponse,
 )
 from ..services.job_queue import get_job_queue
@@ -30,7 +28,9 @@ from ..services.task_handlers import (
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 
-@router.post("/import", response_model=ImportDatasetResponse)
+@router.post(
+    "/import", response_model=ImportDatasetResponse, operation_id="import_dataset"
+)
 async def import_dataset(
     request: ImportDatasetRequest,
     background_tasks: BackgroundTasks,
@@ -68,7 +68,11 @@ async def import_dataset(
         )
 
 
-@router.post("/import/bulk", response_model=BulkImportResponse)
+@router.post(
+    "/import/bulk",
+    response_model=BulkImportResponse,
+    operation_id="bulk_import_dataset",
+)
 async def bulk_import_datasets(
     request: BulkImportRequest,
     background_tasks: BackgroundTasks,
@@ -106,7 +110,7 @@ async def bulk_import_datasets(
         )
 
 
-@router.get("/", response_model=DatasetListResponse)
+@router.get("/", response_model=DatasetListResponse, operation_id="list_datasets")
 async def list_datasets(root: str = "data", user=Depends(verify_token)):
     """List all available datasets."""
     try:
@@ -136,7 +140,7 @@ async def list_datasets(root: str = "data", user=Depends(verify_token)):
         )
 
 
-@router.get("/{dataset_name}")
+@router.get("/{dataset_name}", operation_id="get_dataset_info")
 async def get_dataset_info(
     dataset_name: str, root: str = "data", user=Depends(verify_token)
 ):
@@ -176,7 +180,7 @@ async def get_dataset_info(
         )
 
 
-@router.delete("/{dataset_name}")
+@router.delete("/{dataset_name}", operation_id="delete_dataset")
 async def delete_dataset(
     dataset_name: str, root: str = "data", user=Depends(verify_token)
 ):

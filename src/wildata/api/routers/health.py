@@ -13,7 +13,7 @@ from ..models.responses import ErrorResponse
 router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("/")
+@router.get("/", operation_id="health_check")
 async def health_check():
     """Basic health check endpoint."""
     return {
@@ -23,7 +23,7 @@ async def health_check():
     }
 
 
-@router.get("/detailed")
+@router.get("/detailed", operation_id="detailed_health_check")
 async def detailed_health_check(config=Depends(get_api_config)):
     """Detailed health check with system information."""
     return {
