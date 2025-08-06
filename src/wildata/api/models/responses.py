@@ -91,18 +91,6 @@ class BulkCreateROIResponse(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
 
 
-class ExportDatasetResponse(BaseModel):
-    """Response model for dataset export."""
-
-    success: bool = Field(..., description="Whether the export was successful")
-    dataset_name: str = Field(..., description="Name of the exported dataset")
-    target_format: str = Field(..., description="Target format")
-    target_path: str = Field(..., description="Output path")
-    job_id: Optional[str] = Field(None, description="Background job ID if async")
-    message: Optional[str] = Field(None, description="Result message")
-    error: Optional[str] = Field(None, description="Error message if failed")
-
-
 class UpdateGPSResponse(BaseModel):
     """Response model for GPS update."""
 

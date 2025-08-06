@@ -24,7 +24,6 @@ from ..models.responses import (
 from ..services.job_queue import get_job_queue
 from ..services.task_handlers import (
     handle_bulk_import,
-    handle_export_dataset,
     handle_import_dataset,
 )
 
@@ -174,72 +173,6 @@ async def get_dataset_info(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get dataset info: {str(e)}",
-        )
-
-
-@router.post("/{dataset_name}/export", response_model=ExportDatasetResponse)
-async def export_dataset(
-    dataset_name: str,
-    request: ExportDatasetRequest,
-    background_tasks: BackgroundTasks,
-    user=Depends(verify_token),
-    semaphore=Depends(get_background_task_semaphore),
-):
-    """Export a dataset to a specific format."""
-    try:
-        # Validate that the dataset exists
-        from ...pipeline import DataPipeline
-
-        pipeline = DataPipeline(root=request.root, split_name="train")
-        datasets = pipeline.list_datasets()
-
-        dataset_exists = any(d.get("dataset_name") == dataset_name for d in datasets)
-        if not dataset_exists:
-            raise NotFoundError(
-                f"Dataset '{dataset_name}' not found", resource_type="dataset"
-            )
-
-        # Create background job
-        job_queue = get_job_queue()
-        job = await job_queue.create_job(
-            job_type="export_dataset",
-            parameters={
-                "dataset_name": dataset_name,
-                "target_format": request.target_format,
-                "target_path": request.target_path,
-                "root": request.root,
-            },
-            user_id=user.get("user_id"),
-        )
-
-        # Add background task
-        async def run_export():
-            async with semaphore:
-                await handle_export_dataset(
-                    job.job_id,
-                    dataset_name,
-                    request.target_format,
-                    request.target_path,
-                    request.root,
-                )
-
-        background_tasks.add_task(run_export)
-
-        return ExportDatasetResponse(
-            success=True,
-            dataset_name=dataset_name,
-            target_format=request.target_format,
-            target_path=request.target_path,
-            job_id=job.job_id,
-            message="Dataset export started in background",
-        )
-
-    except NotFoundError:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start export: {str(e)}",
         )
 
 

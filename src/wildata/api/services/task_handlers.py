@@ -301,61 +301,6 @@ async def handle_bulk_create_roi(
         return result
 
 
-async def handle_export_dataset(
-    job_id: str,
-    dataset_name: str,
-    target_format: str,
-    target_path: str,
-    root: str = "data",
-) -> JobResult:
-    """Handle dataset export in background."""
-    job_queue = get_job_queue()
-
-    try:
-        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=10.0)
-
-        # Import the pipeline
-        from ...pipeline import DataPipeline
-
-        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=50.0)
-
-        # Run the export
-        pipeline = DataPipeline(root=root, split_name="train")
-        success = pipeline.export_dataset(dataset_name, target_format, target_path)
-
-        await job_queue.update_job_status(job_id, JobStatus.RUNNING, progress=90.0)
-
-        if success:
-            result = JobResult(
-                success=True,
-                message=f"Successfully exported dataset '{dataset_name}' to {target_path}",
-                data={
-                    "dataset_name": dataset_name,
-                    "target_format": target_format,
-                    "target_path": target_path,
-                },
-            )
-            await job_queue.update_job_status(
-                job_id, JobStatus.COMPLETED, progress=100.0, result=result
-            )
-        else:
-            result = JobResult(
-                success=False, error=f"Failed to export dataset '{dataset_name}'"
-            )
-            await job_queue.update_job_status(
-                job_id, JobStatus.FAILED, progress=100.0, result=result
-            )
-
-        return result
-
-    except Exception as e:
-        result = JobResult(success=False, error=f"Export failed: {str(e)}")
-        await job_queue.update_job_status(
-            job_id, JobStatus.FAILED, progress=100.0, result=result
-        )
-        return result
-
-
 async def handle_update_gps(
     job_id: str, config: Any, verbose: bool = False
 ) -> JobResult:

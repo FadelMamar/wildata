@@ -47,15 +47,6 @@ class BulkCreateROIRequest(BulkCreateROIDatasetConfig):
         extra = "allow"
 
 
-class ExportDatasetRequest(BaseModel):
-    """Request model for exporting datasets."""
-
-    dataset_name: str = Field(..., description="Name of the dataset to export")
-    target_format: str = Field(..., description="Target format (coco/yolo)")
-    target_path: str = Field(..., description="Output path")
-    root: str = Field(default="data", description="Root directory for data storage")
-
-
 class UpdateGPSRequest(ExifGPSUpdateConfig):
     """Request model for updating GPS data - inherits from CLI config."""
 
