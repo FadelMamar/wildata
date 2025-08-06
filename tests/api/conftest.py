@@ -128,8 +128,7 @@ def valid_bulk_import_request_data():
     """Valid bulk import request data using real paths."""
     return BulkImportRequest(
         source_paths=[
-            r"D:\workspace\savmap\coco\annotations\train.json",
-            r"D:\workspace\data\general_dataset\tiled-data\coco-dataset\annotations\annotations_train.json",
+            r"D:\workspace\savmap\coco\annotations",  # directory
         ],
         source_format="coco",
         root=str(ROOT / "data" / "api-testing-dataset"),
