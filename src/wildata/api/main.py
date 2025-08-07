@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi_mcp import FastApiMCP
 
 from .config import api_config
 from .dependencies import handle_api_exception
@@ -43,6 +44,16 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+mcp = FastApiMCP(
+    app,
+    name="WildData API MCP",
+    description="WildData API MCP server",
+    describe_all_responses=True,
+    describe_full_response_schema=True,
+)
+mcp.mount_http()
+
 
 # Add CORS middleware
 app.add_middleware(
@@ -88,7 +99,7 @@ async def root():
     }
 
 
-@app.get("/api")
+@app.get("/api", operation_id="api_info")
 async def api_info():
     """API information endpoint."""
     return {
@@ -104,3 +115,7 @@ async def api_info():
             "visualization": "/api/v1/visualize",
         },
     }
+
+
+# Refresh the MCP server to include the new endpoint
+mcp.setup_server()

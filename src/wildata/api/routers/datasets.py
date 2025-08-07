@@ -178,23 +178,3 @@ async def get_dataset_info(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get dataset info: {str(e)}",
         )
-
-
-@router.delete("/{dataset_name}", operation_id="delete_dataset")
-async def delete_dataset(
-    dataset_name: str, root: str = "data", user=Depends(verify_token)
-):
-    """Delete a dataset."""
-    try:
-        # TODO: Implement dataset deletion
-        # This would require adding a delete method to the DataPipeline
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Dataset deletion not yet implemented",
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete dataset: {str(e)}",
-        )
