@@ -4,16 +4,12 @@ Streamlit UI for WildData CLI functionalities.
 
 import os
 import subprocess
-import sys
 import tempfile
-import traceback
-from pathlib import Path
 from typing import Optional
 
 import streamlit as st
 
 from wildata.config import ROOT
-from wildata.pipeline import DataPipeline
 
 
 def run_cli_command(
@@ -246,7 +242,9 @@ def main():
         st.markdown("**Using Command Line Arguments**")
         with st.expander("Update GPS from CSV (CLI)", expanded=True):
             with st.form("gps_form"):
-                image_folder = st.text_input("Image Folder Path", key="gps_image_folder")
+                image_folder = st.text_input(
+                    "Image Folder Path", key="gps_image_folder"
+                )
                 csv_path = st.text_input("CSV File Path", key="gps_csv_path")
                 output_dir = st.text_input("Output Directory", key="gps_output_dir")
 

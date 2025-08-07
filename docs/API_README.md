@@ -42,7 +42,7 @@ launch_api.bat
 ```
 
 ### Accessing the API
-- **port** (default): 84841 
+- **port** (default): 8441 
 - **API Documentation**: http://localhost:$port/docs
 - **Alternative Docs**: http://localhost:$port/redoc
 - **Health Check**: http://localhost:$port/api/v1/health
