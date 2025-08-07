@@ -42,11 +42,11 @@ launch_api.bat
 ```
 
 ### Accessing the API
-
-- **API Documentation**: http://localhost:8000/docs
-- **Alternative Docs**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/api/v1/health
-- **API Info**: http://localhost:8000/api
+- **port** (default): 84841 
+- **API Documentation**: http://localhost:$port/docs
+- **Alternative Docs**: http://localhost:$port/redoc
+- **Health Check**: http://localhost:$port/api/v1/health
+- **API Info**: http://localhost:$port/api
 
 ## API Endpoints
 
