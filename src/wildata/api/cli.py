@@ -50,7 +50,3 @@ def check():
     typer.echo(f"  Max file size: {api_config.max_file_size} bytes")
     typer.echo(f"  Job queue size: {api_config.job_queue_size}")
     typer.echo(f"  CORS origins: {api_config.cors_origins}")
-
-
-if __name__ == "__main__":
-    app()

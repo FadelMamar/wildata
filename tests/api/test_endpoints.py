@@ -12,7 +12,6 @@ from wildata.api.models.responses import (
     BulkImportResponse,
     CreateROIResponse,
     DatasetInfo,
-    ExportDatasetResponse,
     ImportDatasetResponse,
     JobStatusResponse,
     UpdateGPSResponse,
@@ -81,20 +80,6 @@ def create_bulk_create_roi_response(
         job_id=job_id,
         total_datasets=2,
         message="Bulk ROI creation job started",
-    )
-
-
-def create_export_dataset_response(
-    job_id: str = "test-job-123"
-) -> ExportDatasetResponse:
-    """Create a valid ExportDatasetResponse."""
-    return ExportDatasetResponse(
-        success=True,
-        dataset_name="test_dataset",
-        target_format="coco",
-        target_path="/path/to/export",
-        job_id=job_id,
-        message="Dataset export job started",
     )
 
 

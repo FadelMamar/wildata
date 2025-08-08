@@ -19,7 +19,7 @@ class APIConfig(BaseSettings):
 
     # CORS settings
     cors_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8080"],
+        default=["*"],  # TODO: change to specific origins in production
         description="Allowed CORS origins",
     )
     cors_allow_credentials: bool = Field(

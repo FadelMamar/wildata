@@ -653,6 +653,3 @@ def update_gps_from_csv(
 from ..api.cli import app as api_app
 
 app.add_typer(api_app, name="api", help="API server commands")
-
-if __name__ == "__main__":
-    app()
