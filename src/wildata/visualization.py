@@ -5,24 +5,20 @@ This module handles dataset creation, visualization, and annotation collection
 using FiftyOne for wildlife detection datasets.
 """
 
-import json
 import logging
 import os
 import traceback
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from pathlib import Path
-from typing import Any, Dict, ItemsView, List, Optional, Union
+from typing import Optional
 
 import fiftyone as fo
 import numpy as np
 import supervision as sv
 from dotenv import load_dotenv
-from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from .datasets.detection import load_detection_dataset
-from .datasets.roi import ConcatDataset, ROIDataset
+from .datasets.roi import ROIDataset
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +54,7 @@ class FiftyOneManager:
         try:
             self.dataset = fo.load_dataset(self.dataset_name)
             logger.info(f"Loaded existing dataset: {self.dataset_name}")
-        except ValueError:
+        except Exception:
             self.dataset = fo.Dataset(self.dataset_name, persistent=self.persistent)
             logger.info(f"Created new dataset: {self.dataset_name}")
 
@@ -153,18 +149,24 @@ class FiftyOneManager:
 
         def to_fo_detection(detections: sv.Detections):
             result = []
-            for i, box in enumerate(detections.xyxy):
-                box = box.copy().astype(np.float32)
-                box[[0, 2]] /= image_data.shape[1]
-                box[[1, 3]] /= image_data.shape[0]
-                box[[2, 3]] -= box[[0, 1]]
-                # print(f"box: {box}")
-                result.append(
-                    fo.Detection(
-                        label=class_mapping[int(detections.class_id[i])],
-                        bounding_box=box,
+            if detections.xyxy is not None and detections.class_id is not None:
+                for i, box in enumerate(detections.xyxy):
+                    box = box.copy().astype(np.float32)
+                    box[[0, 2]] /= image_data.shape[1]
+                    box[[1, 3]] /= image_data.shape[0]
+                    box[[2, 3]] -= box[[0, 1]]
+                    # print(f"box: {box}")
+                    class_id = int(detections.class_id[i])
+                    if class_id in class_mapping:
+                        label = class_mapping[class_id]
+                    else:
+                        label = str(class_id)
+                    result.append(
+                        fo.Detection(
+                            label=label,
+                            bounding_box=box,
+                        )
                     )
-                )
             return result
 
         if split is not None:
@@ -188,29 +190,16 @@ class FiftyOneManager:
             root_data_directory, dataset_name, split
         )
         samples = []
+        for file_path, image_data, detections in tqdm(
+            dataset, desc="Importing detection data", unit="images"
+        ):
+            sample = self._create_detection_sample(
+                file_path, image_data, detections, class_mapping, split
+            )
+            samples.append(sample)
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [
-                executor.submit(
-                    self._create_detection_sample,
-                    file_path,
-                    image_data,
-                    detections,
-                    class_mapping,
-                    split,
-                )
-                for file_path, image_data, detections in dataset
-            ]
-
-            for future in tqdm(futures, desc="Importing detection data"):
-                sample = future.result()
-                samples.append(sample)
-
-        if self.dataset is not None:
-            self.dataset.add_samples(samples)
-            self.save_dataset()
-        else:
-            logger.error("Dataset is not initialized")
+        self.dataset.add_samples(samples, progress=True)
+        self.save_dataset()
 
     def send_to_labelstudio(
         self,
