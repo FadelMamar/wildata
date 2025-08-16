@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi_mcp import FastApiMCP
 
 from .config import api_config
 from .dependencies import handle_api_exception
@@ -44,15 +43,6 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
-
-mcp = FastApiMCP(
-    app,
-    name="WildData API MCP",
-    description="WildData API MCP server",
-    describe_all_responses=True,
-    describe_full_response_schema=True,
-)
-mcp.mount_http()
 
 
 # Add CORS middleware
@@ -118,4 +108,20 @@ async def api_info():
 
 
 # Refresh the MCP server to include the new endpoint
-mcp.setup_server()
+try:
+    from fastapi_mcp import FastApiMCP
+
+    mcp = FastApiMCP(
+        app,
+        name="WildData API MCP",
+        description="WildData API MCP server",
+        describe_all_responses=True,
+        describe_full_response_schema=True,
+    )
+    mcp.mount_http()
+    mcp.setup_server()
+except ImportError:
+    print("FastAPI MCP is not installed. Skipping MCP server setup.")
+
+except Exception as e:
+    print(f"Error setting up MCP server: {e}")

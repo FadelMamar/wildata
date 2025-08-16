@@ -282,6 +282,7 @@ class FrameworkDataManager:
             "val": Path(os.path.relpath(val_dir, yolo_dir)).as_posix(),
             "test": Path(os.path.relpath(test_dir, yolo_dir)).as_posix(),
             "names": yolo_data["names"],
+            "nc": len(yolo_data["names"]),
         }
         with open(yolo_dir / "data.yaml", "w") as f:
             yaml.safe_dump(data_yaml, f)
@@ -303,8 +304,6 @@ class FrameworkDataManager:
             path = self._create_coco_format(dataset_name)
         elif framework.lower() == "yolo":
             path = self._create_yolo_format(dataset_name)
-        elif framework.lower() == "roi":
-            path = self._create_roi_format(dataset_name)
         else:
             raise ValueError(f"Unsupported framework: {framework}")
         return {"framework": framework, "path": path}
