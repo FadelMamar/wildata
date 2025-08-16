@@ -458,44 +458,6 @@ def list_datasets(
 
 
 @app.command()
-def export_dataset(
-    dataset_name: str = typer.Argument(..., help="Name of the dataset to export"),
-    target_format: str = typer.Option(
-        ..., "--format", "-f", help="Target format (coco/yolo)"
-    ),
-    target_path: str = typer.Option(..., "--output", "-o", help="Output path"),
-    root: str = typer.Option(
-        "data", "--root", "-r", help="Root directory for data storage"
-    ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-):
-    """Export a dataset to a specific format."""
-    try:
-        pipeline = DataPipeline(root=root, split_name="train")
-
-        if verbose:
-            typer.echo(
-                f"📤 Exporting dataset '{dataset_name}' to {target_format} format..."
-            )
-
-        success = pipeline.export_dataset(dataset_name, target_format, target_path)
-
-        if success:
-            typer.echo(
-                f"[SUCCESS] Successfully exported dataset '{dataset_name}' to {target_path}"
-            )
-        else:
-            typer.echo(f"[ERROR] Failed to export dataset '{dataset_name}'")
-            raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"[ERROR] Export failed: {str(e)}")
-        if verbose:
-            typer.echo(f"   Traceback: {traceback.format_exc()}")
-        raise typer.Exit(1)
-
-
-@app.command()
 def visualize_classification(
     dataset_name: str = typer.Argument(..., help="Name for the FiftyOne dataset"),
     root_data_directory: Optional[str] = typer.Option(
@@ -687,5 +649,7 @@ def update_gps_from_csv(
         raise typer.Exit(1)
 
 
-if __name__ == "__main__":
-    app()
+# Add API subcommand
+from ..api.cli import app as api_app
+
+app.add_typer(api_app, name="api", help="API server commands")

@@ -81,13 +81,6 @@ class ImportDatasetConfig(BaseModel):
             raise ValueError('processing_mode must be either "streaming" or "batch"')
         return v
 
-    @field_validator("source_path", mode="before")
-    @classmethod
-    def validate_source_path(cls, v: Any) -> str:
-        if not Path(v).exists():
-            raise ValueError(f"Source path does not exist: {v}")
-        return v
-
     @field_validator("dotenv_path", mode="before")
     @classmethod
     def validate_dotenv_path(cls, v: Any) -> Optional[str]:
@@ -113,6 +106,13 @@ class ImportDatasetConfig(BaseModel):
         """Save configuration to YAML file."""
         with open(path, "w", encoding="utf-8") as f:
             yaml.dump(self.model_dump(), f, default_flow_style=False, indent=2)
+
+    @field_validator("source_path", mode="before")
+    @classmethod
+    def validate_source_path(cls, v: Any) -> str:
+        if not Path(v).is_file():
+            raise ValueError(f"Source path is not a file: {v}")
+        return str(v)
 
 
 class ROIDatasetConfig(BaseModel):
@@ -201,6 +201,43 @@ class BulkImportDatasetConfig(BaseModel):
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         return cls.model_validate(data)
+
+    @field_validator("source_paths", mode="before")
+    @classmethod
+    def validate_source_paths(cls, v: list[str]) -> list[str]:
+        for path in v:
+            if not Path(path).is_dir():
+                raise ValueError(f"Source path is not a directory: {path}")
+        return v
+
+    # Validation methods
+    @field_validator("source_format", mode="before")
+    @classmethod
+    def validate_source_format(cls, v: str) -> str:
+        if v not in ["coco", "yolo", "ls"]:
+            raise ValueError('source_format must be either "coco" or "yolo"')
+        return v
+
+    @field_validator("split_name", mode="before")
+    @classmethod
+    def validate_split_name(cls, v: str) -> str:
+        if v not in ["train", "val", "test"]:
+            raise ValueError("split_name must be one of: train, val, test")
+        return v
+
+    @field_validator("processing_mode", mode="before")
+    @classmethod
+    def validate_processing_mode(cls, v: str) -> str:
+        if v not in ["streaming", "batch"]:
+            raise ValueError('processing_mode must be either "streaming" or "batch"')
+        return v
+
+    @field_validator("ls_xml_config", mode="before")
+    @classmethod
+    def validate_ls_xml_config(cls, v: str) -> Optional[str]:
+        if v is not None and not Path(v).exists():
+            raise ValueError(f"Label Studio XML config path does not exist: {v}")
+        return v
 
 
 class BulkCreateROIDatasetConfig(BaseModel):

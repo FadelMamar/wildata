@@ -1,6 +1,0 @@
-outs:
-- md5: 7e4c753c2b9277b2c7d620970d449834.dir
-  size: 1394494465
-  nfiles: 3489
-  hash: md5
-  path: demo-dataset
