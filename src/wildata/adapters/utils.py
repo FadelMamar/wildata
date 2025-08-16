@@ -85,18 +85,19 @@ class ExifGPSManager:
         """
         Add GPS coordinates to image EXIF data
         """
-        img = Image.open(input_path)
+
         try:
+            img = Image.open(input_path)
             exif_dict = piexif.load(img.info.get("exif", b""))
+            exif_dict = self._get_updated_exif_dict(
+            exif_dict, latitude, longitude, altitude
+            )
+            exif_bytes = piexif.dump(exif_dict)
+            img.save(output_path, exif=exif_bytes, quality=95)
+            logger.debug(f"GPS data added successfully to {output_path}")
         except:
             exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
-        exif_dict = self._get_updated_exif_dict(
-            exif_dict, latitude, longitude, altitude
-        )
-        exif_bytes = piexif.dump(exif_dict)
-        img.save(output_path, exif=exif_bytes)
-        logger.debug(f"GPS data added successfully to {output_path}")
-
+    
     def update_folder_from_csv(
         self,
         image_folder: str,
@@ -116,7 +117,12 @@ class ExifGPSManager:
         If inplace is False, images are written to output_dir (preserving filenames).
         """
         if csv_data is None:
-            df = pd.read_csv(csv_path, skiprows=skip_rows)
+            try:
+                df = pd.read_csv(csv_path, skiprows=skip_rows, sep=";")
+                df[filename_col]
+            except Exception as e:
+                df = pd.read_csv(csv_path, skiprows=skip_rows, sep=",")
+                df[filename_col]
         else:
             df = csv_data
 
