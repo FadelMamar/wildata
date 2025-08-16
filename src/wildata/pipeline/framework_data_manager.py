@@ -284,7 +284,9 @@ class FrameworkDataManager:
             "names": yolo_data["names"],
             "nc": len(yolo_data["names"]),
         }
-        with open(yolo_dir / "data.yaml", "w") as f:
+        with open(
+            yolo_dir / self.path_manager.yolo_data_yaml_name, "w", encoding="utf-8"
+        ) as f:
             yaml.safe_dump(data_yaml, f)
 
     def export_framework_format(
