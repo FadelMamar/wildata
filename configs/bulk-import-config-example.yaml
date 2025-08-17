@@ -3,13 +3,13 @@
 
 # Required parameters
 source_paths: 
-  - D:\PhD\Data per camp\Exported annotations and labels\Wet season - Rep 3
+  - D:\PhD\Data per camp\Exported annotations and labels\April 25-July25
 
 
-source_format: "coco"  # or "yolo" "coco" "ls"
+source_format: "ls"  # or "yolo" "coco" "ls"
 
 # Pipeline configuration
-root: D:\workspace\data\demo-dataset
+root: D:\PhD\workspace\data
 split_name: train  # train, val, or test
 enable_dvc: false
 
@@ -24,10 +24,10 @@ ls_xml_config: "configs/label_studio_config.xml"  # "path/to/label_studio_config
 ls_parse_config: false
 
 # ROI configuration (optional)
-disable_roi: true # optional
+disable_roi: false # optional
 roi_config:
   random_roi_count: 2
-  roi_box_size: 128
+  roi_box_size: 384
   min_roi_size: 32
   dark_threshold: 0.7
   background_class: "background"
@@ -60,6 +60,6 @@ transformations:
     tile_size: 800
     stride: 640
     min_visibility: 0.7
-    max_negative_tiles_in_negative_image: 2
-    negative_positive_ratio: 1.0
+    max_negative_tiles_in_negative_image: 2 # number of negative tiles in a negative image
+    negative_positive_ratio: 1.0 # sampling ratio of negative to positive tiles
     dark_threshold: 0.7 

@@ -2,13 +2,15 @@
 # Usage: wildata import-dataset --config import-config-example.yaml
 
 # Required parameters
-source_path: D:\PhD\Data per camp\Exported annotations and labels\April 25-July25\109 FiftyOne_campaign_LR_Farm_south.json
+source_paths: 
+  - D:\PhD\Data per camp\Exported annotations and labels\April 25-July25\train
+
+
 source_format: "ls"  # or "yolo" "coco" "ls"
-dataset_name: "109-FiftyOne_campaign_LR_Farm_south"  # Name of the dataset
 
 # Pipeline configuration
 root: D:\PhD\workspace\data
-split_name: "train"  # train, val, or test
+split_name: train  # train, val, or test
 enable_dvc: false
 
 # Processing options
@@ -18,8 +20,8 @@ bbox_tolerance: 5
 
 # Label Studio options (optional)
 dotenv_path: ".env"  # "path/to/.env"
-ls_xml_config: "configs/label_studio_config.xml"  # "path/to/label_studio_config.xml"
-ls_parse_config: false
+ls_xml_config: null # "configs/label_studio_config.xml"  # should be null if ls_parse_config= true
+ls_parse_config: true # true or false. if true, label studio must be on.
 
 # ROI configuration (optional)
 disable_roi: false # optional
@@ -31,7 +33,6 @@ roi_config:
   background_class: "background"
   save_format: "jpg"
   quality: 95
-  sample_background: true
 
 
 # Transformation pipeline configuration (optional)
@@ -54,11 +55,11 @@ transformations:
     seed: 41
     num_transforms: 2
   
-  enable_tiling: false
+  enable_tiling: true
   tiling:
     tile_size: 800
     stride: 640
     min_visibility: 0.7
-    max_negative_tiles_in_negative_image: 3
-    negative_positive_ratio: 1.0
+    max_negative_tiles_in_negative_image: 2
+    negative_positive_ratio: 5.0
     dark_threshold: 0.7 
