@@ -33,6 +33,7 @@ class PathManager:
             "yolo": self.yolo_formats_dir,
             "roi": self.roi_formats_dir,
         }
+        self.yolo_data_yaml_name = "data.yaml"
 
     def _setup_directory_structure(self):
         """Setup the standard directory structure."""

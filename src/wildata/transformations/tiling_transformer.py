@@ -5,6 +5,7 @@ Tiling transformer for extracting tiles/patches from images and annotations.
 import logging
 import math
 import random
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
@@ -368,8 +369,9 @@ class TilingTransformer(BaseTransformer):
     def transform(self, inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         self._validate_inputs(inputs)
         outputs = []
-        for data in inputs:
-            outputs.extend(self._transform_once(data))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for output in executor.map(self._transform_once, inputs):
+                outputs.extend(output)
 
         return outputs
 
