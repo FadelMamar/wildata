@@ -31,14 +31,21 @@ class LabelstudioConverter(BaseConverter):
         """
         super().__init__()
 
-        self.dotenv_path = dotenv_path
-        self.ls_client: Optional[LabelStudio] = None
+        self.dotenv_path = dotenv_path or ROOT/".env"
 
         if dotenv_path is not None:
             load_dotenv(dotenv_path)
 
-        self.label_studio_url = os.getenv("LABEL_STUDIO_URL")
-        self.api_key = os.getenv("LABEL_STUDIO_API_KEY")
+        label_studio_url = os.getenv("LABEL_STUDIO_URL")
+        api_key = os.getenv("LABEL_STUDIO_API_KEY")
+        try:
+            self.ls_client = LabelStudio(base_url=label_studio_url, api_key=api_key)
+        except Exception as e:
+            self.logger.error(
+                f"Failed to initialize Label Studio client: {e}. "
+                "Ensure LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY are set correctly."
+            )
+            self.ls_client = None
 
     def convert(
         self,
@@ -54,7 +61,7 @@ class LabelstudioConverter(BaseConverter):
         parsed_config = None
         if parse_ls_config:
             parsed_config = self.get_ls_parsed_config(
-                ls_json_path=input_file, ls_client=self.ls_client
+                ls_json_path=input_file,
             )
 
         coco_data = self._convert_ls_json_to_coco(
@@ -132,7 +139,7 @@ class LabelstudioConverter(BaseConverter):
         return coco_annotations
 
     def get_ls_parsed_config(
-        self, ls_json_path: str, ls_client=None, dotenv_path: Optional[str] = None
+        self, ls_json_path: str,
     ) -> Union[Dict[str, Any], None]:
         """
         Get parsed configuration from Label Studio project.
@@ -145,44 +152,23 @@ class LabelstudioConverter(BaseConverter):
         Returns:
             Parsed Label Studio configuration
         """
-        if dotenv_path:
-            load_dotenv(dotenv_path)
-        else:
-            load_dotenv()
-
-        labelstudio_client = ls_client
-        if ls_client is None:
-            # Try to create client if label_studio_sdk is available
-            if self.label_studio_url is None:
-                self.label_studio_url = os.getenv("LABEL_STUDIO_URL")
-            if self.api_key is None:
-                self.api_key = os.getenv("LABEL_STUDIO_API_KEY")
-
-            if self.label_studio_url is None or self.api_key is None:
-                raise ValueError(
-                    "LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set"
-                )
-
-            labelstudio_client = LabelStudio(
-                url=self.label_studio_url, api_key=self.api_key
-            )
-
+    
         with open(ls_json_path, "r", encoding="utf-8") as f:
             ls_annotation = json.load(fp=f)
 
         ids = set([annot["project"] for annot in ls_annotation])
         if len(ids) != 1:
-            raise ValueError("Annotations come from different projects. Not allowed!")
+            raise ValueError(f"Annotations come from different projects. Project ids are: {ids}")
 
         project_id = ids.pop()
 
-        if labelstudio_client is None:
+        if self.ls_client is None:
             self.logger.warning(
                 "No Label Studio client available, returning empty config"
             )
             return {}
 
-        project = labelstudio_client.projects.get(id=project_id)
+        project = self.ls_client.projects.get(id=project_id)
         parsed_config = project.parsed_label_config
 
         return parsed_config
