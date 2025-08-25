@@ -160,20 +160,21 @@ class YOLOValidator:
         for split in splits:
             if split in self.yolo_data:
                 split_paths = self.yolo_data[split]
-                if isinstance(split_paths, list):
+                if isinstance(split_paths, list) or isinstance(split_paths, str):
+                    pass
+                else:
                     self.errors.append(
-                        f"data.yaml '{split}' field must be a string, not a list. Got: {split_paths}"
+                        f"data.yaml '{split}' field must be a string or list. Got: {type(split_paths)}"
                     )
                     continue
-                elif not isinstance(split_paths, str):
-                    self.errors.append(
-                        f"data.yaml '{split}' field must be a string. Got: {type(split_paths)}"
-                    )
-                    continue
+
                 # Handle single string path
-                resolved = self._resolve_path(split_paths)
-                if split_paths and not os.path.exists(resolved):
-                    self.warnings.append(f"Split directory does not exist: {resolved}")
+                if isinstance(split_paths, str):
+                    split_paths = [split_paths]
+                for split_path in split_paths:
+                    resolved = self._resolve_path(split_path)
+                    if split_path and not os.path.exists(resolved):
+                        self.warnings.append(f"Split directory does not exist: {resolved}")
 
     def _validate_directories(self):
         """Validate image and label directories."""
