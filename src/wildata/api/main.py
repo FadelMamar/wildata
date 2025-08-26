@@ -121,7 +121,5 @@ try:
     mcp.mount_http()
     mcp.setup_server()
 except ImportError:
-    print("FastAPI MCP is not installed. Skipping MCP server setup.")
-
-except Exception as e:
-    print(f"Error setting up MCP server: {e}")
+    print("FastAPI MCP not installed. Skipping MCP server setup.")
+    

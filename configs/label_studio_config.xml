@@ -1,6 +1,8 @@
 <View>
   <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="true"/>
   <RectangleLabels name="label" toName="image">
+    
+    
   <Label value="impala" background="#FFA39E"/>
   <Label value="nyala" background="#D4380D"/>
   <Label value="nyala(m)" background="#FFC069"/>
@@ -23,7 +25,6 @@
   <Label value="termite mound" background="#FFA39E"/>
   <Label value="label" background="#FFA39E"/>
   <Label value="colour impala" background="#FFA39E"/>
-  <Label value="lechwe" background="#FFA39E"/>
-  <Label value="Tsessebe" background="#FFA39E"/>
+  <Label value="elephant" background="#FFA39E"/>
   </RectangleLabels>
 </View>
