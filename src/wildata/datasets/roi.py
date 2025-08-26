@@ -10,6 +10,7 @@ from torch.utils.data import ConcatDataset, Dataset
 from torchvision.transforms.v2 import Compose, PILToTensor, ToDtype
 from torchvision.transforms.v2 import functional as F
 
+from ..adapters.utils import read_image
 from ..logging_config import get_logger
 from ..pipeline.path_manager import PathManager
 
@@ -173,7 +174,7 @@ class ROIDataset(Dataset):
     def get_image(self, idx: int) -> torch.Tensor:
         label_info = self.roi_labels[idx]
         img_path = (self.images_dir / label_info["file_name"]).as_posix()
-        image = Image.open(img_path).convert("RGB")
+        image = read_image(img_path).convert("RGB")
         if self.transform:
             image = self.transform(image)
         return self.load_image(image)

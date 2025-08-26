@@ -8,11 +8,19 @@ from typing import Optional
 
 import pandas as pd
 import piexif
-from PIL import Image
+from PIL import Image, ImageOps
 from tqdm import tqdm
-from wildata.logging_config import get_logger
+
+from ..logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def read_image(image_path: str) -> Image.Image:
+    """Load an image from a file path."""
+    image = Image.open(image_path)
+    image = ImageOps.exif_transpose(image)
+    return image
 
 
 def decimal_to_dms(decimal_degree):
@@ -87,17 +95,17 @@ class ExifGPSManager:
         """
 
         try:
-            img = Image.open(input_path)
+            img = read_image(input_path)
             exif_dict = piexif.load(img.info.get("exif", b""))
             exif_dict = self._get_updated_exif_dict(
-            exif_dict, latitude, longitude, altitude
+                exif_dict, latitude, longitude, altitude
             )
             exif_bytes = piexif.dump(exif_dict)
             img.save(output_path, exif=exif_bytes, quality=95)
             logger.debug(f"GPS data added successfully to {output_path}")
         except:
             exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
-    
+
     def update_folder_from_csv(
         self,
         image_folder: str,

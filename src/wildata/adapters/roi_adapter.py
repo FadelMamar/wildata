@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from ..config import ROIConfig
 from .base_adapter import BaseAdapter
+from .utils import read_image
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +35,21 @@ def extract_roi_from_image_bbox(
     Returns:
         PIL.Image or None
     """
-    with Image.open(image_path) as img:
-        x, y, w, h = bbox
-        pad_x = roi_box_size // 2
-        pad_y = roi_box_size // 2
-        x1 = max(0, int(x - pad_x))
-        y1 = max(0, int(y - pad_y))
-        x2 = int(x + w + pad_x)
-        y2 = int(y + h + pad_y)
-        if (x2 - x1) < min_roi_size or (y2 - y1) < min_roi_size:
-            logger.warning(f"ROI size is too small: {x2 - x1}x{y2 - y1}")
-            return None
-        roi = img.crop((x1, y1, x2, y2))
-        roi = roi.resize((roi_box_size, roi_box_size))
+    img = read_image(image_path)
+    x, y, w, h = bbox
+    pad_x = roi_box_size // 2
+    pad_y = roi_box_size // 2
+    x1 = max(0, int(x - pad_x))
+    y1 = max(0, int(y - pad_y))
+    x2 = int(x + w + pad_x)
+    y2 = int(y + h + pad_y)
+
+    if (x2 - x1) < min_roi_size or (y2 - y1) < min_roi_size:
+        logger.warning(f"ROI size is too small: {x2 - x1}x{y2 - y1}")
+        return None
+
+    roi = img.crop((x1, y1, x2, y2))
+    roi = roi.resize((roi_box_size, roi_box_size))
 
     return roi
 
@@ -288,8 +291,8 @@ class ROIAdapter(BaseAdapter):
 
         # Load image for cropping
         try:
-            with Image.open(image_path) as img:
-                width, height = img.size
+            img = read_image(image_path)
+            width, height = img.size
         except Exception as e:
             logger.warning(f"Error loading image {image_path}: {e}")
             return {"roi_images": [], "roi_labels": [], "next_counter": counter}
@@ -377,8 +380,8 @@ class ROIAdapter(BaseAdapter):
         if self.roi_callback:
             try:
                 # Load image for callback
-                with Image.open(image_path) as img:
-                    callback_bboxes = self.roi_callback(img)
+                img = read_image(image_path)
+                callback_bboxes = self.roi_callback(img)
                 for bbox_info in callback_bboxes:
                     bbox = bbox_info.get("bbox")
                     class_name = bbox_info.get("class", self.background_class)
@@ -517,18 +520,17 @@ class ROIAdapter(BaseAdapter):
         bbox: Tuple[float, float, float, float],
         original_bbox: Optional[Tuple[float, float, float, float]] = None,
     ) -> np.ndarray:
-        with Image.open(image_path) as img:
-            if original_bbox:
-                img = sv.TriangleAnnotator().annotate(
-                    scene=img.copy(),
-                    detections=sv.Detections(
-                        xyxy=np.array(original_bbox).reshape(1, 4),
-                        class_id=np.array([0]),
-                    ),
-                )
-
-            cropped_img = img.crop(bbox)
-            cropped_img = np.array(cropped_img)
+        img = read_image(image_path)
+        if original_bbox:
+            img = sv.TriangleAnnotator().annotate(
+                scene=img.copy(),
+                detections=sv.Detections(
+                    xyxy=np.array(original_bbox).reshape(1, 4),
+                    class_id=np.array([0]),
+                ),
+            )
+        cropped_img = img.crop(bbox)
+        cropped_img = np.array(cropped_img)
         return cropped_img
 
     def _save_roi_images(

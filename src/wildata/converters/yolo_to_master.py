@@ -8,6 +8,7 @@ import yaml
 from PIL import Image
 from tqdm import tqdm
 
+from ..adapters.utils import read_image
 from ..validators.yolo_validator import YOLOValidator
 from .base_converter import BaseConverter
 
@@ -210,8 +211,8 @@ class YOLOToMasterConverter(BaseConverter):
 
     def _get_image_dimensions(self, image_file: str) -> Tuple[int, int]:
         assert os.path.exists(image_file), f"Image file does not exist: {image_file}"
-        with Image.open(image_file) as image:
-            width, height = image.size
+        image = read_image(image_file)
+        width, height = image.size
         return width, height
 
     def _parse_yolo_label_file(

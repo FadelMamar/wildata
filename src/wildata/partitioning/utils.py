@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 import geopy
 from PIL import Image
 
+from ..adapters.utils import read_image
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -29,8 +30,8 @@ class GPSUtils:
         from PIL.ExifTags import TAGS
 
         if image is None:
-            with Image.open(file_name) as img:
-                exif_data = img._getexif()  # type: ignore
+            img = read_image(file_name)
+            exif_data = img._getexif()  # type: ignore
         else:
             assert isinstance(image, Image.Image), "Provide PIL Image"
             try:
