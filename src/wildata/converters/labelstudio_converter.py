@@ -21,7 +21,7 @@ class LabelstudioConverter(BaseConverter):
     Inherits from BaseConverter and implements the required interface.
     """
 
-    def __init__(self, dotenv_path: Optional[str] = None):
+    def __init__(self, dotenv_path: Optional[str] = None, client: Optional[LabelStudio] = None):
         """
         Initialize the Label Studio converter.
 
@@ -39,7 +39,7 @@ class LabelstudioConverter(BaseConverter):
         label_studio_url = os.getenv("LABEL_STUDIO_URL")
         api_key = os.getenv("LABEL_STUDIO_API_KEY")
         try:
-            self.ls_client = LabelStudio(base_url=label_studio_url, api_key=api_key)
+            self.ls_client = client or LabelStudio(base_url=label_studio_url, api_key=api_key)
         except Exception as e:
             self.logger.error(
                 f"Failed to initialize Label Studio client: {e}. "
